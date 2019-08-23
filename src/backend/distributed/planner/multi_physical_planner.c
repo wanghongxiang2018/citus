@@ -144,6 +144,7 @@ static Task * QueryPushdownTaskCreate(Query *originalQuery, int shardIndex,
 									  TaskType taskType,
 									  bool modifyRequiresMasterEvaluation);
 static bool ShardIntervalsEqual(FmgrInfo *comparisonFunction,
+								Oid collation,
 								ShardInterval *firstInterval,
 								ShardInterval *secondInterval);
 static List * SqlTaskList(Job *job);
@@ -2478,6 +2479,7 @@ CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 	uint32 firstListShardCount = firstTableCache->shardIntervalArrayLength;
 	uint32 secondListShardCount = secondTableCache->shardIntervalArrayLength;
 	FmgrInfo *comparisonFunction = firstTableCache->shardIntervalCompareFunction;
+	Oid collation = firstTableCache->partitionColumn->varcollid;
 
 	if (firstListShardCount != secondListShardCount)
 	{
@@ -2515,7 +2517,6 @@ CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 		return false;
 	}
 
-
 	/*
 	 * If not known to be colocated check if the remaining shards are
 	 * anyway. Do so by comparing the shard interval arrays that are sorted on
@@ -2529,6 +2530,7 @@ CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 		ShardInterval *secondInterval = sortedSecondIntervalArray[intervalIndex];
 
 		bool shardIntervalsEqual = ShardIntervalsEqual(comparisonFunction,
+													   collation,
 													   firstInterval,
 													   secondInterval);
 		if (!shardIntervalsEqual || !CoPlacedShardIntervals(firstInterval,
@@ -2585,8 +2587,8 @@ CoPlacedShardIntervals(ShardInterval *firstInterval, ShardInterval *secondInterv
  * ShardIntervalsEqual checks if given shard intervals have equal min/max values.
  */
 static bool
-ShardIntervalsEqual(FmgrInfo *comparisonFunction, ShardInterval *firstInterval,
-					ShardInterval *secondInterval)
+ShardIntervalsEqual(FmgrInfo *comparisonFunction, Oid collation,
+					ShardInterval *firstInterval, ShardInterval *secondInterval)
 {
 	bool shardIntervalsEqual = false;
 
@@ -2598,8 +2600,10 @@ ShardIntervalsEqual(FmgrInfo *comparisonFunction, ShardInterval *firstInterval,
 	if (firstInterval->minValueExists && firstInterval->maxValueExists &&
 		secondInterval->minValueExists && secondInterval->maxValueExists)
 	{
-		Datum minDatum = CompareCall2(comparisonFunction, firstMin, secondMin);
-		Datum maxDatum = CompareCall2(comparisonFunction, firstMax, secondMax);
+		Datum minDatum = FunctionCall2Coll(comparisonFunction, collation, firstMin,
+										   secondMin);
+		Datum maxDatum = FunctionCall2Coll(comparisonFunction, collation, firstMax,
+										   secondMax);
 		int firstComparison = DatumGetInt32(minDatum);
 		int secondComparison = DatumGetInt32(maxDatum);
 
@@ -3778,6 +3782,7 @@ ShardIntervalsOverlap(ShardInterval *firstInterval, ShardInterval *secondInterva
 	DistTableCacheEntry *intervalRelation =
 		DistributedTableCacheEntry(firstInterval->relationId);
 	FmgrInfo *comparisonFunction = intervalRelation->shardIntervalCompareFunction;
+	Oid collation = intervalRelation->partitionColumn->varcollid;
 
 
 	Datum firstMin = firstInterval->minValue;
@@ -3794,8 +3799,10 @@ ShardIntervalsOverlap(ShardInterval *firstInterval, ShardInterval *secondInterva
 	if (firstInterval->minValueExists && firstInterval->maxValueExists &&
 		secondInterval->minValueExists && secondInterval->maxValueExists)
 	{
-		Datum firstDatum = CompareCall2(comparisonFunction, firstMax, secondMin);
-		Datum secondDatum = CompareCall2(comparisonFunction, secondMax, firstMin);
+		Datum firstDatum = FunctionCall2Coll(comparisonFunction, collation, firstMax,
+											 secondMin);
+		Datum secondDatum = FunctionCall2Coll(comparisonFunction, collation, secondMax,
+											  firstMin);
 		int firstComparison = DatumGetInt32(firstDatum);
 		int secondComparison = DatumGetInt32(secondDatum);
 

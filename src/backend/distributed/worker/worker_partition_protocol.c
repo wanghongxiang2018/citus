@@ -1242,7 +1242,8 @@ HashPartitionId(Datum partitionValue, Oid partitionCollation, const void *contex
 	{
 		hashPartitionId =
 			SearchCachedShardInterval(hashDatum, syntheticShardIntervalArray,
-									  partitionCount, comparisonFunction);
+									  partitionCount, partitionCollation,
+									  comparisonFunction);
 	}
 
 

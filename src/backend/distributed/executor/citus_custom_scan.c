@@ -15,6 +15,7 @@
 #include "distributed/backend_data.h"
 #include "distributed/citus_clauses.h"
 #include "distributed/citus_custom_scan.h"
+#include "distributed/connection_management.h"
 #include "distributed/deparse_shard_query.h"
 #include "distributed/distributed_execution_locks.h"
 #include "distributed/insert_select_executor.h"
@@ -124,6 +125,12 @@ CitusBeginScan(CustomScanState *node, EState *estate, int eflags)
 	MarkCitusInitiatedCoordinatorBackend();
 
 	CitusScanState *scanState = (CitusScanState *) node;
+
+	/*
+	 * Make sure we can see notices during regular queries, which would typically
+	 * be the result of a function that raises a notices being called.
+	 */
+	SetCitusNoticeLevel(NOTICE);
 
 #if PG_VERSION_NUM >= 120000
 	ExecInitResultSlot(&scanState->customScanState.ss.ps, &TTSOpsMinimalTuple);
@@ -326,6 +333,9 @@ CitusEndScan(CustomScanState *node)
 	MultiExecutorType executorType = scanState->executorType;
 	Const *partitionKeyConst = NULL;
 	char *partitionKeyString = NULL;
+
+	/* stop propagating notices */
+	UnsetCitusNoticeLevel();
 
 	if (workerJob != NULL)
 	{

@@ -1300,8 +1300,6 @@ AcquireExecutorShardLocksForExecution(DistributedExecution *execution)
 static void
 FinishDistributedExecution(DistributedExecution *execution)
 {
-	UnsetCitusNoticeLevel();
-
 	if (DistributedExecutionModifiesDatabase(execution))
 	{
 		/* prevent copying shards in same transaction */

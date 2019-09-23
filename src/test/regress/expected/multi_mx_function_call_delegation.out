@@ -405,8 +405,8 @@ DETAIL:  A distributed function is created. To make sure subsequent commands see
 
 select mx_call_func_raise(2);
 DEBUG:  pushing down the function call
-DEBUG:  warning
-DETAIL:  WARNING from localhost:57638
+WARNING:  warning
+DETAIL:  from localhost:57638
 ERROR:  error
 CONTEXT:  while executing command on localhost:57638
 PL/pgSQL function multi_mx_function_call_delegation.mx_call_func_raise(integer) line 4 at RAISE

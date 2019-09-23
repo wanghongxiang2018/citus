@@ -56,6 +56,12 @@ SELECT wait_until_metadata_sync();
 (1 row)
 
 SELECT * FROM run_command_on_workers($$CALL procedure_tests.raise_info('hello');$$) ORDER BY 1,2;
+INFO:  information message hello
+DETAIL:  from localhost:57637
+CONTEXT:  PL/pgSQL function run_command_on_workers(text,boolean) line 12 at RETURN QUERY
+INFO:  information message hello
+DETAIL:  from localhost:57638
+CONTEXT:  PL/pgSQL function run_command_on_workers(text,boolean) line 12 at RETURN QUERY
  nodename  | nodeport | success | result 
 -----------+----------+---------+--------
  localhost |    57637 | t       | CALL
@@ -130,6 +136,12 @@ SELECT * FROM run_command_on_workers($$CALL procedure_tests.raise_info('hello');
 (2 rows)
 
 SELECT * FROM run_command_on_workers($$CALL procedure_tests.raise_info2('hello');$$) ORDER BY 1,2;
+INFO:  information message hello
+DETAIL:  from localhost:57637
+CONTEXT:  PL/pgSQL function run_command_on_workers(text,boolean) line 12 at RETURN QUERY
+INFO:  information message hello
+DETAIL:  from localhost:57638
+CONTEXT:  PL/pgSQL function run_command_on_workers(text,boolean) line 12 at RETURN QUERY
  nodename  | nodeport | success | result 
 -----------+----------+---------+--------
  localhost |    57637 | t       | CALL
@@ -175,6 +187,12 @@ SELECT * FROM run_command_on_workers($$CALL procedure_tests.raise_info('hello');
 (2 rows)
 
 SELECT * FROM run_command_on_workers($$CALL procedure_tests2.raise_info('hello');$$) ORDER BY 1,2;
+INFO:  information message hello
+DETAIL:  from localhost:57637
+CONTEXT:  PL/pgSQL function run_command_on_workers(text,boolean) line 12 at RETURN QUERY
+INFO:  information message hello
+DETAIL:  from localhost:57638
+CONTEXT:  PL/pgSQL function run_command_on_workers(text,boolean) line 12 at RETURN QUERY
  nodename  | nodeport | success | result 
 -----------+----------+---------+--------
  localhost |    57637 | t       | CALL

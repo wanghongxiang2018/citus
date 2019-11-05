@@ -12,8 +12,11 @@
 
 #include "postgres.h"
 
+#include "commands/extension.h"
 #include "distributed/commands.h"
 #include "distributed/deparser.h"
+#include "server/catalog/objectaddress.h"
+#include "server/catalog/pg_extension_d.h"
 
 static const ObjectAddress * AlterTableStmtObjectAddress(AlterTableStmt *stmt,
 														 bool missing_ok);
@@ -26,7 +29,8 @@ static const ObjectAddress * AlterOwnerStmtObjectAddress(AlterOwnerStmt *stmt,
 														 bool missing_ok);
 static const ObjectAddress * AlterObjectDependsStmtObjectAddress(
 	AlterObjectDependsStmt *stmt, bool missing_ok);
-
+static const ObjectAddress * CreateExtensionStmtObjectAddress(
+	CreateExtensionStmt *stmt, bool missing_ok);	
 
 /*
  * GetObjectAddressFromParseTree returns the ObjectAdderss of the main target of the parse
@@ -107,6 +111,10 @@ GetObjectAddressFromParseTree(Node *parseTree, bool missing_ok)
 			ereport(ERROR, (errmsg(
 								"unsupported object type to get object address for DefineStmt")));
 			return NULL;
+    }
+		case T_CreateExtensionStmt:
+		{
+			return CreateExtensionStmtObjectAddress(castNode(CreateExtensionStmt, parseTree), missing_ok);
 		}
 
 		default:
@@ -272,4 +280,18 @@ AlterObjectDependsStmtObjectAddress(AlterObjectDependsStmt *stmt, bool missing_o
 								   "get object address for")));
 		}
 	}
+}
+
+
+static const ObjectAddress *
+CreateExtensionStmtObjectAddress(CreateExtensionStmt *stmt, bool missing_ok)
+{
+	// TODO: @onurctirtir implement me
+
+	ObjectAddress *address = palloc0(sizeof(ObjectAddress));
+
+	Oid extensionoid = get_extension_oid(stmt->extname, missing_ok);
+	ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
+
+	return address;	
 }

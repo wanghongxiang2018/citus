@@ -432,6 +432,12 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 					ddlJobs = PlanDropFunctionStmt(dropStatement, queryString);
 				}
 
+				case OBJECT_EXTENSION:
+				{
+					ddlJobs = ProcessDropExtensionStmt(dropStatement, queryString);
+					break;
+				}
+
 				default:
 				{
 					/* unsupported type, skipping*/
@@ -563,6 +569,11 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 		{
 			ddlJobs = PlanAlterObjectDependsStmt(
 				castNode(AlterObjectDependsStmt, parsetree), queryString);
+		}
+
+		if (IsA(parsetree, CreateExtensionStmt))
+		{
+			ddlJobs = PlanCreateExtensionStmt(castNode(CreateExtensionStmt, parsetree), queryString);
 		}
 
 		/*
@@ -738,6 +749,11 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 			Assert(ddlJobs == NIL); /* jobs should not have been set before */
 			ddlJobs = ProcessCreateFunctionStmt(castNode(CreateFunctionStmt, parsetree),
 												queryString);
+		}
+
+		if (IsA(parsetree, CreateExtensionStmt))
+		{
+			ProcessCreateExtensionStmt(castNode(CreateExtensionStmt, parsetree), queryString);
 		}
 	}
 

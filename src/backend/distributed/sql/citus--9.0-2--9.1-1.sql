@@ -14,3 +14,4 @@ UPDATE pg_dist_colocation SET replicationfactor = -1 WHERE distributioncolumntyp
 -- drop function which was used for upgrading from 6.0
 -- creation was removed from citus--7.0-1.sql
 DROP FUNCTION IF EXISTS pg_catalog.master_initialize_node_metadata;
+#include "udfs/alter_role_if_exists/9.1-1.sql"

@@ -211,7 +211,7 @@ WHERE colocationid IN
      WHERE logicalrelid = 'upgrade_reference_table_append'::regclass);
  colocationid | shardcount | replicationfactor | distributioncolumntype | distributioncolumncollation 
 --------------+------------+-------------------+------------------------+-----------------------------
-        10004 |          1 |                 2 |                      0 |                           0
+        10004 |          1 |                -1 |                      0 |                           0
 (1 row)
 
 SELECT
@@ -323,7 +323,7 @@ WHERE colocationid IN
      WHERE logicalrelid = 'upgrade_reference_table_one_worker'::regclass);
  colocationid | shardcount | replicationfactor | distributioncolumntype | distributioncolumncollation 
 --------------+------------+-------------------+------------------------+-----------------------------
-        10004 |          1 |                 2 |                      0 |                           0
+        10004 |          1 |                -1 |                      0 |                           0
 (1 row)
 
 SELECT
@@ -438,7 +438,7 @@ WHERE colocationid IN
      WHERE logicalrelid = 'upgrade_reference_table_one_unhealthy'::regclass);
  colocationid | shardcount | replicationfactor | distributioncolumntype | distributioncolumncollation 
 --------------+------------+-------------------+------------------------+-----------------------------
-        10004 |          1 |                 2 |                      0 |                           0
+        10004 |          1 |                -1 |                      0 |                           0
 (1 row)
 
 SELECT
@@ -550,7 +550,7 @@ WHERE colocationid IN
      WHERE logicalrelid = 'upgrade_reference_table_both_healthy'::regclass);
  colocationid | shardcount | replicationfactor | distributioncolumntype | distributioncolumncollation 
 --------------+------------+-------------------+------------------------+-----------------------------
-        10004 |          1 |                 2 |                      0 |                           0
+        10004 |          1 |                -1 |                      0 |                           0
 (1 row)
 
 SELECT
@@ -780,7 +780,7 @@ WHERE colocationid IN
      WHERE logicalrelid = 'upgrade_reference_table_transaction_commit'::regclass);
  colocationid | shardcount | replicationfactor | distributioncolumntype | distributioncolumncollation 
 --------------+------------+-------------------+------------------------+-----------------------------
-        10004 |          1 |                 2 |                      0 |                           0
+        10004 |          1 |                -1 |                      0 |                           0
 (1 row)
 
 SELECT
@@ -1025,7 +1025,7 @@ WHERE colocationid IN
      WHERE logicalrelid = 'upgrade_reference_table_mx'::regclass);
  colocationid | shardcount | replicationfactor | distributioncolumntype | distributioncolumncollation 
 --------------+------------+-------------------+------------------------+-----------------------------
-        10004 |          1 |                 2 |                      0 |                           0
+        10004 |          1 |                -1 |                      0 |                           0
 (1 row)
 
 SELECT

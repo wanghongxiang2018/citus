@@ -30,6 +30,7 @@ extern char * FormatCollateExtended(Oid collid, bits16 flags);
 extern void QualifyTreeNode(Node *stmt);
 extern const char * DeparseTreeNode(Node *stmt);
 
+/* forward declarations for deparse_type_stmts.c */
 extern const char * DeparseCompositeTypeStmt(CompositeTypeStmt *stmt);
 extern const char * DeparseCreateEnumStmt(CreateEnumStmt *stmt);
 extern const char * DeparseDropTypeStmt(DropStmt *stmt);
@@ -66,5 +67,19 @@ extern void QualifyRenameFunctionStmt(RenameStmt *stmt);
 extern void QualifyAlterFunctionSchemaStmt(AlterObjectSchemaStmt *stmt);
 extern void QualifyAlterFunctionOwnerStmt(AlterOwnerStmt *stmt);
 extern void QualifyAlterFunctionDependsStmt(AlterObjectDependsStmt *stmt);
+
+/* forward declarations for deparse_extension_stmts.c */
+
+extern const char * DeparseCreateExtensionStmt(CreateExtensionStmt *stmt);
+
+// TODO: move this struct def to a appropriate file
+/* To read required fields of option list of a CreateExtensionStmt */
+typedef struct CreateExtensionOptions 
+{
+	char *schemaName;
+	char *new_version;
+} CreateExtensionOptions;
+    // TODO: quote_identifier of quote_qualified_identifier ??
+extern CreateExtensionOptions FetchCreateExtensionOptionList(CreateExtensionStmt *stmt);
 
 #endif /* CITUS_DEPARSER_H */

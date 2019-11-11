@@ -491,15 +491,6 @@ FollowNewSupportedDependencies(void *context, Form_pg_depend pg_depend)
 		return false;
 	}
 
-	/*
-	 * Objects owned by an extension are assumed to be created on the workers by creating
-	 * the extension in the cluster
-	 */
-	if (IsObjectAddressOwnedByExtension(&address, NULL))
-	{
-		return false;
-	}
-
 	return true;
 }
 
@@ -542,15 +533,6 @@ FollowAllSupportedDependencies(void *context, Form_pg_depend pg_depend)
 		return false;
 	}
 
-	/*
-	 * Objects owned by an extension are assumed to be created on the workers by creating
-	 * the extension in the cluster
-	 */
-	if (IsObjectAddressOwnedByExtension(&address, NULL))
-	{
-		return false;
-	}
-
 	return true;
 }
 
@@ -567,7 +549,16 @@ ApplyAddToDependencyList(void *context, Form_pg_depend pg_depend)
 	ObjectAddressCollector *collector = (ObjectAddressCollector *) context;
 	ObjectAddress address = { 0 };
 	ObjectAddressSet(address, pg_depend->refclassid, pg_depend->refobjid);
-
+	
+	/*
+	 * Objects owned by an extension are assumed to be created on the workers by creating
+	 * the extension in the cluster
+	*/
+	if (IsObjectAddressOwnedByExtension(&address, NULL))
+	{
+		return;
+	}
+	
 	CollectObjectAddress(collector, &address);
 }
 

@@ -24,7 +24,6 @@ static const char * DeparseRenameAttributeStmt(RenameStmt *stmt);
 static const char * DeparseAlterObjectSchemaStmt(AlterObjectSchemaStmt *stmt);
 static const char * DeparseAlterOwnerStmt(AlterOwnerStmt *stmt);
 static const char * DeparseAlterObjectDependsStmt(AlterObjectDependsStmt *stmt);
-static const char * DeparseCreateExtensionStmt(CreateExtensionStmt *stmt);
 
 /*
  * DeparseTreeNode aims to be the inverse of postgres' ParseTreeNode. Currently with
@@ -317,11 +316,4 @@ DeparseAlterObjectDependsStmt(AlterObjectDependsStmt *stmt)
 			ereport(ERROR, (errmsg("unsupported alter depends statement for deparsing")));
 		}
 	}
-}
-
-static const char *
-DeparseCreateExtensionStmt(CreateExtensionStmt *stmt)
-{
-	// TODO: @onurctirtir implement me
-	return NULL;
 }

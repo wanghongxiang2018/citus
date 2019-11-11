@@ -599,6 +599,7 @@ FollowAllSupportedDependencies(ObjectAddressCollector *collector, Form_pg_depend
 		return false;
 	}
 
+<<<<<<< HEAD
 	/*
 	 * We can only distribute dependencies that citus knows how to distribute.
 	 *
@@ -611,6 +612,8 @@ FollowAllSupportedDependencies(ObjectAddressCollector *collector, Form_pg_depend
 		return false;
 	}
 
+=======
+>>>>>>> 9459ddf... Mark schema as distributed, change GetDependenciesForObject logic and write a basic deparser
 	return true;
 }
 
@@ -626,16 +629,28 @@ ApplyAddToDependencyList(ObjectAddressCollector *collector, Form_pg_depend pg_de
 {
 	ObjectAddress address = { 0 };
 	ObjectAddressSet(address, pg_depend->refclassid, pg_depend->refobjid);
+<<<<<<< HEAD
 
 	/*
 	 * Objects owned by an extension are assumed to be created on the workers by creating
 	 * the extension in the cluster, we we don't want explicitly create them.
 	 */
+=======
+	
+	/*
+	 * Objects owned by an extension are assumed to be created on the workers by creating
+	 * the extension in the cluster
+	*/
+>>>>>>> 9459ddf... Mark schema as distributed, change GetDependenciesForObject logic and write a basic deparser
 	if (IsObjectAddressOwnedByExtension(&address, NULL))
 	{
 		return;
 	}
+<<<<<<< HEAD
 
+=======
+	
+>>>>>>> 9459ddf... Mark schema as distributed, change GetDependenciesForObject logic and write a basic deparser
 	CollectObjectAddress(collector, &address);
 }
 

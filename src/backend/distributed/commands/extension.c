@@ -23,6 +23,8 @@
 #include "server/access/genam.h"
 #include "server/commands/extension.h"
 #include "server/catalog/pg_extension_d.h"
+#include "server/catalog/pg_namespace_d.h"
+#include "server/catalog/objectaddress.h"
 #include "server/nodes/parsenodes.h"
 #include "server/nodes/pg_list.h"
 #include "server/utils/fmgroids.h"
@@ -32,11 +34,9 @@
 
 /* Local functions forward declarations for helper functions */
 static char * ExtractNewExtensionVersion(Node *parsetree);
-static bool ShouldPropagateExtensionCreate();
-static void QualifyCreateExtensionStmt(CreateExtensionStmt *stmt);
-static Oid PgAvailExtVerOid(void);
-static void GetLatestVersion(const char *extensionName);
 static bool ShouldPropagateExtensionCreate(void);
+static void AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *stmt);
+static const ObjectAddress * GetSchemaAddress(const char * schemaName);
 
 /*
  * IsCitusExtensionStmt returns whether a given utility is a CREATE or ALTER
@@ -139,8 +139,6 @@ ExtractNewExtensionVersion(Node *parsetree)
 List *
 PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
 {
-	// TODO: @onurctirtir implement me
-
 	// TODO: @onurctirtir which lock should I take ??
 
 	List *commands = NIL;
@@ -153,48 +151,49 @@ PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
 
 	EnsureCoordinator();
 
-	// TODO: @onurctirtir This function should be renamed
-	QualifyCreateExtensionStmt(stmt);
+	AddMissingFieldsCreateExtensionStmt(stmt);
 
-	// TODO: @onurctirtir, is this needed ??
 	createExtensionStmtSql = DeparseTreeNode((Node*) stmt);
 	// TODO: @onurctirtir not sure about below call ?
 	//EnsureSequentialModeForTypeDDL();
 
-	/* TODO: @onurctirtir, to prevent recursion with mx we disable ddl propagation, should we ?? */
+	/* TODO: @onurctirtir, to prevent recursion with mx we disable ddl propagation, should we ? Ask to Onder */
 	commands = list_make3(DISABLE_DDL_PROPAGATION,
 						  (void *) createExtensionStmtSql,
 						  ENABLE_DDL_PROPAGATION);
 
 	// DEBUG
-	GetLatestVersion(NULL);
 	elog(DEBUG1, queryString);
 	elog(DEBUG1, createExtensionStmtSql);
 
-	return NULL; 
-	// TODO: for debug return NodeDDLTaskList(ALL_WORKERS, commands);
+	return NodeDDLTaskList(ALL_WORKERS, commands);
 }
 
 void
 ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
 {
-	// TODO: @onurctirtir implement me
-	const ObjectAddress *extensionAddress = NULL;
-	extensionAddress = GetObjectAddressFromParseTree((Node *) stmt, false);
-	
+	const ObjectAddress *extensionAddress = NULL, *schemaAddress = NULL;
+
+	CreateExtensionOptions fetchedOptions;
+		
 	if (!ShouldPropagateExtensionCreate()) {
 		return;
 	}
 
+	extensionAddress = GetObjectAddressFromParseTree((Node *) stmt, false);
+
 	EnsureDependenciesExistsOnAllNodes(extensionAddress);
 
 	MarkObjectDistributed(extensionAddress);
+
+    fetchedOptions = FetchCreateExtensionOptionList(stmt);
+	schemaAddress = GetSchemaAddress(fetchedOptions.schemaName);
+	MarkObjectDistributed(schemaAddress);
 }
 
 List *
 ProcessDropExtensionStmt(DropStmt *stmt, const char *queryString)
 {
-	// TODO: @onurctirtir implement me
 	List *commands = NIL;
 	bool missingOk = true;
 	ListCell *dropExtensionEntry = NULL;
@@ -206,7 +205,6 @@ ProcessDropExtensionStmt(DropStmt *stmt, const char *queryString)
 
 		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
 
-		// TODO: this logic could be moved to GetObjectAddress function but a bit tricky
 		Oid extensionoid = get_extension_oid(extensionName, missingOk);
 		
 		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
@@ -220,77 +218,14 @@ ProcessDropExtensionStmt(DropStmt *stmt, const char *queryString)
 
 		UnmarkObjectDistributed(address);
 
+		// TODO: unmark schema as distributed as well
+
 		commands = lappend(commands, (void *) queryString);
 
 		elog(DEBUG1, queryString);
 	}
 
 	return NodeDDLTaskList(ALL_WORKERS, commands);
-}
-
-static void
-QualifyCreateExtensionStmt(CreateExtensionStmt *stmt)
-{
-	//TODO: @onurctirtir implement this function
-
-	// we may need to qualiy DefElem list
-	List *optionsList = stmt->options;
-	ListCell *optionsCell = NULL;
-	
-	bool newVersionSpecified  = false;
-	bool oldVersionSpecified  = false;
-	bool schemaSpecified  = false;
-
-	// check if the above ones are specified in createExtension statement
-	foreach(optionsCell, optionsList)
-	{
-		// TODO:: @onurctirtir
-		// check if lookup functions alredy exist in postgres or citus codebase
-		DefElem *defElement = (DefElem *) lfirst(optionsCell);
-
-		if (strncmp(defElement->defname, "new_version", NAMEDATALEN) == 0)
-		{
-			newVersionSpecified = true;
-		}
-		else if (strncmp(defElement->defname, "old_version", NAMEDATALEN) == 0)
-		{
-			oldVersionSpecified = true;
-		}
-		else if (strncmp(defElement->defname, "schema", NAMEDATALEN) == 0)
-		{
-			schemaSpecified = true;
-		}
-		else if (strncmp(defElement->defname, "cascade", NAMEDATALEN) == 0)
-		{
-			continue;
-		}
-		else
-		{
-			// TODO: @onurctirtir we do not expect other than the above ones, remove this condition before merge
-			Assert(false);
-		}	
-	}
-
-	// manipulate stmt so the missing specifiers just found above are also included in stmt
-	// TODO: where to get version num
-	if (!newVersionSpecified)
-	{
-		DefElem *newDefElement = makeDefElem("new_version", (Node*)(makeString("version_num")), -1);
-		optionsList = lappend(optionsList, newDefElement);
-	}
-	// TODO: where to get version num
-	if (!oldVersionSpecified)
-	{
-		DefElem *newDefElement = makeDefElem("old_version", (Node*)(makeString("version_num")), -1);
-		optionsList = lappend(optionsList, newDefElement);
-
-	}
-	// TODO: where to schema name
-	if (!schemaSpecified)
-	{
-		DefElem *newDefElement = makeDefElem("schema", (Node*)(makeString("schema_name")), -1);
-		optionsList = lappend(optionsList, newDefElement);
-	}	
 }
 
 static bool
@@ -307,80 +242,43 @@ ShouldPropagateExtensionCreate(void)
 	return true;
 }
 
+
 /*
- * Fetch latest available version of an extension from pg_catalog.pg_available_extension_versions
- */ 
-static void
-GetLatestVersion(const char *extensionName)
-{
-	Oid pgAvailExtVerOid = InvalidOid;
-
-	// scanKeyInıt params
-	AttrNumber attributeNumber = 1;
-	StrategyNumber strategyNumber = BTEqualStrategyNumber;
-	RegProcedure regProcedure =  F_TEXTEQ;
-	Datum extensionObjectDatum = (Datum) 0; 
-	ScanKeyData scanKey[1];
-
-	// systable_beginscan params
-	Relation pgAvailExtensionVersions;
-	Oid indexOid = InvalidOid; // index id of TODO: @onurctirtir
-	bool indexOK = false;
-	Snapshot snapshot = NULL;
-	int nkeys = 1;
-
-	// resulting objects
-	SysScanDesc scanDesriptor = NULL;
-	HeapTuple resultTuple = NULL;
-	
-	bool result = false;
-
-	// get oid of pg_catalog.pg_available_extension_versions
-	pgAvailExtVerOid = PgAvailExtVerOid();
-	
-	// get datum representing pg_catalog.pg_available_extension_versions
-	extensionObjectDatum = ObjectIdGetDatum(pgAvailExtVerOid);
-
-	// TODO: @onurctirtir which lock should I take ??
-	pgAvailExtensionVersions = heap_open(pgAvailExtVerOid, AccessShareLock);
-
-	// TODO: @onurctirtir add additional keys to fetch only the latest version
-	ScanKeyInit(&scanKey[0], attributeNumber, strategyNumber, regProcedure, extensionObjectDatum);
-	
-	// XXX: gives segmentation after this call 
-	scanDesriptor = systable_beginscan(
-		pgAvailExtensionVersions, indexOid, indexOK, snapshot, nkeys, scanKey);
-
-	resultTuple = systable_getnext(scanDesriptor);
-	if (HeapTupleIsValid(resultTuple))
-	{
-		result = true;
-	}
-
-	systable_endscan(scanDesriptor);
-	relation_close(pgAvailExtensionVersions, AccessShareLock);
-
-	//return result;
-}
-
-//TODO: @onurctirtir rename and move this function ?
-/* 
- * Return oid of pg_catalog.pg_available_extension_versions 
+ * We process and add missing fields to CreateExtensionStmt before deparse as 
+ * we alse need parseTree of modified query in PlanCreateExtensionStmt call.
  */
-static Oid
-PgAvailExtVerOid(void)
+static void
+AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *stmt)
 {
-	bool pgCatalogMissingOk = true;
-	Oid pgCatalogOid = InvalidOid;
-	Oid pgAvailExtVerOid = InvalidOid;
+	/* we may need to qualiy DefElem list */
+	List *optionsList = stmt->options;
+	
+	/* Check if the above fields are specified in original statement */
+	CreateExtensionOptions fetchedOptions = FetchCreateExtensionOptionList(stmt);
 
-	//TODO: @onurctirtir assertions before merger
+	if (!fetchedOptions.new_version)
+	{
+		DefElem *newDefElement = makeDefElem("new_version", (Node*)(makeString("version_num")), -1);
+		optionsList = lappend(optionsList, newDefElement);
 
-	pgCatalogOid = get_namespace_oid("pg_catalog", pgCatalogMissingOk);
-	Assert(pgCatalogOid != InvalidOid);
-	pgAvailExtVerOid = get_relname_relid("pg_available_extension_versions", pgCatalogOid);
-	Assert(pgAvailExtVerOid != InvalidOid);
+		// TODO: find the latest version available in coordinator and append it
+	}	
+	if (!fetchedOptions.schemaName)
+	{
+		DefElem *newDefElement = makeDefElem("schema", (Node*)(makeString("schema_name")), -1);
+		optionsList = lappend(optionsList, newDefElement);
 
-	return pgAvailExtVerOid;
+		// TODO: append current schema
+	}
 }
 
+static const ObjectAddress * GetSchemaAddress(const char * schemaName)
+{
+	ObjectAddress *address = palloc0(sizeof(ObjectAddress));
+	Oid pg_namespace_oid = get_namespace_oid(schemaName, true);
+
+	// TODO: using NamespaceRelationId is appropriate ??
+	ObjectAddressSet(*address, NamespaceRelationId, pg_namespace_oid);
+
+	return address;
+}

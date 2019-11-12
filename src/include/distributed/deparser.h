@@ -71,15 +71,8 @@ extern void QualifyAlterFunctionDependsStmt(AlterObjectDependsStmt *stmt);
 /* forward declarations for deparse_extension_stmts.c */
 
 extern const char * DeparseCreateExtensionStmt(CreateExtensionStmt *stmt);
-
-// TODO: move this struct def to a appropriate file
-/* To read required fields of option list of a CreateExtensionStmt */
-typedef struct CreateExtensionOptions 
-{
-	char *schemaName;
-	char *new_version;
-} CreateExtensionOptions;
-    // TODO: quote_identifier of quote_qualified_identifier ??
-extern CreateExtensionOptions FetchCreateExtensionOptionList(CreateExtensionStmt *stmt);
+extern const char * DeparseDropExtensionStmt(DropStmt *stmt);
+extern const char * GetCreateExtensionOption(List *defElemOptions, const
+											 char *optionName);
 
 #endif /* CITUS_DEPARSER_H */

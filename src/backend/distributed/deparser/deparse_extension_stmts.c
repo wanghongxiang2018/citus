@@ -3,12 +3,13 @@
 
 #include "distributed/deparser.h"
 #include "lib/stringinfo.h"
-#include "parser/parse_type.h"
-#include "server/nodes/pg_list.h"
-#include "server/nodes/value.h"
-#include "server/utils/builtins.h"
+#include "nodes/pg_list.h"
+#include "nodes/parsenodes.h"
+#include "utils/builtins.h"
 
 static void AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *stmt);
+static void AppendDropExtensionStmt(StringInfo buf, DropStmt *stmt);
+static void AppendExtensionNameList(StringInfo buf, List *objects);
 
 const char *
 DeparseCreateExtensionStmt(CreateExtensionStmt *stmt)
@@ -21,51 +22,74 @@ DeparseCreateExtensionStmt(CreateExtensionStmt *stmt)
 	return sql.data;
 }
 
+
 static void
 AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *stmt)
 {
-    /*
-     * Read required fields from parsed stmt
-     * We do not fetch if_not_exist and cascade fields as we will add them by default
-     * We as also do not care old_version for now
-     */
+	/*
+	 * Read required fields from parsed stmt
+	 * We do not fetch if_not_exist and cascade fields as we will add them by default
+	 * We as also do not care old_version for now
+	 */
 	const char *extensionName = stmt->extname;
-    CreateExtensionOptions fetchedOptions;
-    const char *new_version = NULL, *schema = NULL;
-
-    fetchedOptions = FetchCreateExtensionOptionList(stmt);
-    
-    // TODO: quote_identifier of quote_qualified_identifier ??
-    new_version = quote_identifier(fetchedOptions.new_version);
-    schema = fetchedOptions.schemaName;
-
-	appendStringInfo(str, "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s VERSION %s CASCADE",
-        extensionName, schema, new_version);
-
-    elog(DEBUG1, str->data);
-}
-
-CreateExtensionOptions
-FetchCreateExtensionOptionList(CreateExtensionStmt *stmt) 
-{
-	CreateExtensionOptions fetchedOptions = { 0 };
 
 	List *optionsList = stmt->options;
-	ListCell *optionsCell = NULL;
-	
-	foreach(optionsCell, optionsList)
+
+	const char *newVersion = quote_identifier(GetCreateExtensionOption(optionsList,
+																	   "new_version"));
+	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
+
+	appendStringInfo(str,
+					 "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s VERSION %s CASCADE",
+					 extensionName, schemaName, newVersion);
+}
+
+
+/*
+ * DeparseDropExtensionStmt builds and returns a string representing the DropStmt
+ */
+const char *
+DeparseDropExtensionStmt(DropStmt *stmt)
+{
+	StringInfoData str = { 0 };
+	initStringInfo(&str);
+
+	AppendDropExtensionStmt(&str, stmt);
+
+	return str.data;
+}
+
+
+/*
+ * AppendDropExtensionStmt appends a string representing the DropStmt to a buffer
+ */
+static void
+AppendDropExtensionStmt(StringInfo buf, DropStmt *stmt)
+{
+	appendStringInfoString(buf, "DROP EXTENSION IF EXISTS ");
+
+	AppendExtensionNameList(buf, stmt->objects);
+
+	appendStringInfoString(buf, " CASCADE;");
+}
+
+
+/*
+ * AppendExtensionNameList appends a string representing the list of extension names to a buffer
+ */
+static void
+AppendExtensionNameList(StringInfo buf, List *objects)
+{
+	ListCell *objectCell = NULL;
+	foreach(objectCell, objects)
 	{
-		DefElem *defElement = (DefElem *) lfirst(optionsCell);
+		const char *extensionName = strVal(lfirst(objectCell));
 
-		if (strncmp(defElement->defname, "new_version", NAMEDATALEN) == 0)
+		if (objectCell != list_head(objects))
 		{
-			fetchedOptions.new_version = strVal(defElement->arg);
+			appendStringInfo(buf, ", ");
 		}
-		else if (strncmp(defElement->defname, "schema", NAMEDATALEN) == 0)
-		{
-			fetchedOptions.schemaName = strVal(defElement->arg);
-		}
+
+		appendStringInfoString(buf, extensionName);
 	}
-
-	return fetchedOptions;
 }

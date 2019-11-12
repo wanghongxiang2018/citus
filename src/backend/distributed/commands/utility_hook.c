@@ -70,7 +70,7 @@ static int activeAlterTables = 0;
 /* Local functions forward declarations for helper functions */
 static void ExecuteDistributedDDLJob(DDLJob *ddlJob);
 static char * SetSearchPathToCurrentSearchPathCommand(void);
-static char * CurrentSearchPath(void);
+char * CurrentSearchPath(void);
 static void PostProcessUtility(Node *parsetree);
 static List * PlanRenameAttributeStmt(RenameStmt *stmt, const char *queryString);
 static List * PlanAlterOwnerStmt(AlterOwnerStmt *stmt, const char *queryString);
@@ -427,11 +427,12 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 				case OBJECT_FUNCTION:
 				{
 					ddlJobs = PlanDropFunctionStmt(dropStatement, queryString);
+					break;
 				}
 
 				case OBJECT_EXTENSION:
 				{
-					ddlJobs = ProcessDropExtensionStmt(dropStatement, queryString);
+					ddlJobs = PlanDropExtensionStmt(dropStatement, queryString);
 					break;
 				}
 
@@ -569,7 +570,8 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 
 		if (IsA(parsetree, CreateExtensionStmt))
 		{
-			ddlJobs = PlanCreateExtensionStmt(castNode(CreateExtensionStmt, parsetree), queryString);
+			ddlJobs = PlanCreateExtensionStmt(castNode(CreateExtensionStmt, parsetree),
+											  queryString);
 		}
 
 		/*
@@ -734,7 +736,8 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 
 		if (IsA(parsetree, CreateExtensionStmt))
 		{
-			ProcessCreateExtensionStmt(castNode(CreateExtensionStmt, parsetree), queryString);
+			ProcessCreateExtensionStmt(castNode(CreateExtensionStmt, parsetree),
+									   queryString);
 		}
 	}
 
@@ -1028,7 +1031,7 @@ SetSearchPathToCurrentSearchPathCommand(void)
  * The function returns NULL if there are no valid schemas in the search_path,
  * mimicing current_schemas(false) function.
  */
-static char *
+char *
 CurrentSearchPath(void)
 {
 	StringInfo currentSearchPath = makeStringInfo();

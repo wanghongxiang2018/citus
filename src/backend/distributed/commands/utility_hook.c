@@ -77,6 +77,11 @@ static List * PlanAlterOwnerStmt(AlterOwnerStmt *stmt, const char *queryString);
 static List * PlanAlterObjectDependsStmt(AlterObjectDependsStmt *stmt,
 										 const char *queryString);
 
+#include "distributed/function_utils.h"
+static char * GetCurrentSchema(void);
+static char * GetDefaultExtensionVersion(char *extname);
+static ReturnSetInfo * FunctionCallGetTupleStore(PGFunction function, Oid functionId);
+
 
 /*
  * CitusProcessUtility is a convenience method to create a PlannedStmt out of pieces of a
@@ -539,6 +544,16 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 											queryString);
 		}
 
+		if (IsA(parsetree, CreateExtensionStmt))
+		{
+			CreateExtensionStmt *stmt = castNode(CreateExtensionStmt, parsetree);
+
+			elog(INFO, "Current Schema: %s", GetCurrentSchema());
+
+			elog(INFO, "Get default version for extension: %s",
+				 GetDefaultExtensionVersion(stmt->extname));
+		}
+
 		if (IsA(parsetree, CreateEnumStmt))
 		{
 			ddlJobs = PlanCreateEnumStmt(castNode(CreateEnumStmt, parsetree),
@@ -793,6 +808,145 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 	 * EXTENSION. This is important to register some invalidation callbacks.
 	 */
 	CitusHasBeenLoaded();
+}
+
+
+/*
+ * TODO: add comments: Cannot return NULL, errors out as Postgres would do if NULL
+ *
+ */
+static char *
+GetCurrentSchema(void)
+{
+	/*
+	 * Neither user nor author of the extension specified schema; use the
+	 * current default creation namespace, which is the first explicit
+	 * entry in the search_path.
+	 */
+	List *search_path = fetch_search_path(false);
+	Oid schemaOid = InvalidOid;
+	char *schemaName = NULL;
+
+	if (search_path == NIL) /* nothing valid in search_path? */
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_SCHEMA),
+				 errmsg("no schema has been selected to create in")));
+	}
+	schemaOid = linitial_oid(search_path);
+	schemaName = get_namespace_name(schemaOid);
+	if (schemaName == NULL) /* recently-deleted namespace? */
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_SCHEMA),
+				 errmsg("no schema has been selected to create in")));
+	}
+
+	list_free(search_path);
+
+	return pstrdup(schemaName);
+}
+
+
+/*
+ * TODO: add comment
+ *
+ *
+ * Cannot return NULL, it'd error out as Postgres does if the version is not avalible
+ */
+static char *
+GetDefaultExtensionVersion(char *extname)
+{
+	TupleTableSlot *tupleTableSlot = NULL;
+	ReturnSetInfo *resultSetInfo = NULL;
+	FmgrInfo *fmgrAvaliableExtensions = (FmgrInfo *) palloc0(sizeof(FmgrInfo));
+	Oid pgavaliableExtensionsOid =
+		FunctionOidExtended("pg_catalog", "pg_available_extensions", 0, false);
+
+	fmgr_info(pgavaliableExtensionsOid, fmgrAvaliableExtensions);
+
+	resultSetInfo =
+		FunctionCallGetTupleStore(fmgrAvaliableExtensions->fn_addr,
+								  pgavaliableExtensionsOid);
+
+	tupleTableSlot = MakeSingleTupleTableSlotCompat(resultSetInfo->setDesc,
+													&TTSOpsMinimalTuple);
+
+	while (true)
+	{
+		bool tuplePresent = false;
+		bool isNull = false;
+
+		const int extensionNameAttrNumber = 1;
+		Datum extensionNameDatum = 0;
+		Name extensionName = NULL;
+
+		Datum defaultVersionDatum = 0;
+		const int defaultVersionAttrNumber = 2;
+
+		tuplePresent = tuplestore_gettupleslot(resultSetInfo->setResult,
+											   true, false, tupleTableSlot);
+		if (!tuplePresent)
+		{
+			/* no more rows */
+			break;
+		}
+
+		extensionNameDatum =
+			slot_getattr(tupleTableSlot, extensionNameAttrNumber, &isNull);
+		if (isNull)
+		{
+			/* is this ever possible? Be on the safe side */
+			continue;
+		}
+
+		extensionName = DatumGetName(extensionNameDatum);
+		if (pg_strncasecmp(extensionName->data, extname, NAMEDATALEN) == 0)
+		{
+			defaultVersionDatum = slot_getattr(tupleTableSlot, defaultVersionAttrNumber,
+											   &isNull);
+
+
+			if (!isNull)
+			{
+				text *versionText = DatumGetTextP(defaultVersionDatum);
+
+				return text_to_cstring(versionText);
+			}
+		}
+	}
+
+	/* couldn't find the name, this is not acceptable, Postgres would error as well */
+	ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			 errmsg("invalid extension version name: \"%s\"", extname),
+			 errdetail("Version names must not be empty.")));
+
+	/* keep compilers happy */
+	return NULL;
+}
+
+
+/*
+ * FunctionCallGetTupleStore calls the given set-returning PGFunction and
+ * returns the ResultSetInfo filled by the called function.
+ */
+static ReturnSetInfo *
+FunctionCallGetTupleStore(PGFunction function, Oid functionId)
+{
+	LOCAL_FCINFO(fcinfo, 1);
+	FmgrInfo flinfo;
+	ReturnSetInfo *rsinfo = makeNode(ReturnSetInfo);
+	EState *estate = CreateExecutorState();
+	rsinfo->econtext = GetPerTupleExprContext(estate);
+	rsinfo->allowedModes = SFRM_Materialize;
+
+	fmgr_info(functionId, &flinfo);
+	InitFunctionCallInfoData(*fcinfo, &flinfo, 0, InvalidOid, NULL, (Node *) rsinfo);
+
+	(*function)(fcinfo);
+
+	return rsinfo;
 }
 
 

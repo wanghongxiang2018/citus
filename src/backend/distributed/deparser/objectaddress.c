@@ -15,8 +15,8 @@
 #include "commands/extension.h"
 #include "distributed/commands.h"
 #include "distributed/deparser.h"
-#include "server/catalog/objectaddress.h"
-#include "server/catalog/pg_extension_d.h"
+#include "catalog/objectaddress.h"
+#include "catalog/pg_extension_d.h"
 
 static const ObjectAddress * AlterTableStmtObjectAddress(AlterTableStmt *stmt,
 														 bool missing_ok);

@@ -22,8 +22,6 @@
 #include "postgres.h"
 
 #include "distributed/deparser.h"
-#include "nodes/makefuncs.h"
-#include "server/nodes/pg_list.h"
 
 
 static void QualifyRenameStmt(RenameStmt *stmt);

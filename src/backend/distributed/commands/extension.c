@@ -27,13 +27,13 @@
 
 /* Local functions forward declarations for helper functions */
 static char * ExtractNewExtensionVersion(Node *parsetree);
-static bool ShouldPropagateCreateDropExtension(void);
 static void AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *stmt);
-static List * FilterNameListForDistributedExtensions(List *objects);
-static List * ExtensionNameListToObjectAddresses(List *objects);
-static char * GetCurrentSchema(void);
 static char * GetDefaultExtensionVersion(char *extname);
 static ReturnSetInfo * FunctionCallGetTupleStore(PGFunction function, Oid functionId);
+static char * GetCurrentSchema(void);
+static List * FilterDistributedExtensions(List *objects);
+static List * ExtensionNameListToObjectAddresses(List *objects);
+static bool ShouldPropagateCreateDropExtension(void);
 
 /*
  * IsCitusExtensionStmt returns whether a given utility is a CREATE or ALTER
@@ -133,8 +133,15 @@ ExtractNewExtensionVersion(Node *parsetree)
 }
 
 
+/*
+ * PlanCreateExtensionStmt is called during the creation of an extension.
+ * It is executed before the statement is applied locally.
+ * We decide if the extension needs to be replicated to the worker, and
+ * if that is the case return a list of DDLJob's that describe how and
+ * where the extension needs to be created.
+ */
 List *
-PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
+PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *queryString)
 {
 	List *commands = NIL;
 	const char *createExtensionStmtSql = NULL;
@@ -144,12 +151,22 @@ PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
 		return NIL;
 	}
 
+	/* Extension management can only be done via coordinator node */
 	EnsureCoordinator();
 
-	AddMissingFieldsCreateExtensionStmt(stmt);
+	/*
+	 * Here we append "new_version" and "schema" fields to the "options" list
+	 * if not specified to satisfy the version and schema consistency
+	 * between worker nodes and the coordinator.
+	 */
+	AddMissingFieldsCreateExtensionStmt(createExtensionStmt);
 
-	createExtensionStmtSql = DeparseTreeNode((Node *) stmt);
+	createExtensionStmtSql = DeparseTreeNode((Node *) createExtensionStmt);
 
+	/*
+	 * To prevent recursive propagation in mx architecture, we disable ddl
+	 * propagation before sending the command to workers.
+	 */
 	commands = list_make3(DISABLE_DDL_PROPAGATION,
 						  (void *) createExtensionStmtSql,
 						  ENABLE_DDL_PROPAGATION);
@@ -158,246 +175,89 @@ PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
 }
 
 
-void
-ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
-{
-	const ObjectAddress *extensionAddress = NULL;
-
-	if (!ShouldPropagateCreateDropExtension())
-	{
-		return;
-	}
-
-	extensionAddress = GetObjectAddressFromParseTree((Node *) stmt, false);
-
-	EnsureDependenciesExistsOnAllNodes(extensionAddress);
-
-	MarkObjectDistributed(extensionAddress);
-}
-
-
-List *
-PlanDropExtensionStmt(DropStmt *stmt, const char *queryString)
-{
-	List *commands = NIL;
-	ListCell *addressCell = NULL;
-	List *oldTypes = stmt->objects;
-	List *distributedExtensions = NIL;
-	List *distributedExtensionAddresses = NIL;
-	const char *deparsedStmt = NULL;
-
-	if (!ShouldPropagateCreateDropExtension())
-	{
-		return NIL;
-	}
-
-	distributedExtensions = FilterNameListForDistributedExtensions(oldTypes);
-
-	if (list_length(distributedExtensions) <= 0)
-	{
-		/* no distributed extensions to drop */
-		return NIL;
-	}
-
-	EnsureCoordinator();
-
-	distributedExtensionAddresses = ExtensionNameListToObjectAddresses(
-		distributedExtensions);
-
-	foreach(addressCell, distributedExtensionAddresses)
-	{
-		ObjectAddress *address = (ObjectAddress *) lfirst(addressCell);
-		UnmarkObjectDistributed(address);
-	}
-
-	/*
-	 * temporary swap the lists of objects to delete with the distributed objects and
-	 * deparse to an executable sql statement for the workers
-	 */
-	stmt->objects = distributedExtensions;
-	deparsedStmt = DeparseTreeNode((Node *) stmt);
-	stmt->objects = oldTypes;
-
-	commands = list_make3(DISABLE_DDL_PROPAGATION,
-						  (void *) deparsedStmt,
-						  ENABLE_DDL_PROPAGATION);
-
-	return NodeDDLTaskList(ALL_WORKERS, commands);
-}
-
-
-static List *
-FilterNameListForDistributedExtensions(List *objects)
-{
-	ListCell *objectCell = NULL;
-	List *result = NIL;
-
-	bool missingOk = true;
-
-	foreach(objectCell, objects)
-	{
-		char *extensionName = strVal(lfirst(objectCell));
-
-		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
-
-		Oid extensionoid = get_extension_oid(extensionName, missingOk);
-
-		if (!OidIsValid(extensionoid))
-		{
-			continue;
-		}
-
-		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
-
-		if (!IsObjectDistributed(address))
-		{
-			continue;
-		}
-
-		result = lappend(result, makeString(extensionName));
-	}
-
-	return result;
-}
-
-
-static List *
-ExtensionNameListToObjectAddresses(List *objects)
-{
-	ListCell *objectCell = NULL;
-	List *result = NIL;
-	bool missingOk = true;
-
-	foreach(objectCell, objects)
-	{
-		const char *extensionName = strVal(lfirst(objectCell));
-
-		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
-
-		Oid extensionoid = get_extension_oid(extensionName, missingOk);
-
-		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
-
-		result = lappend(result, address);
-	}
-	return result;
-}
-
-
-static bool
-ShouldPropagateCreateDropExtension(void)
-{
-	if (!EnableDependencyCreation)
-	{
-		/*
-		 * if we disabled object propagation, then we should not propagate anything
-		 */
-		return false;
-	}
-
-	return true;
-}
-
-
 /*
- * Add missing fields to CreateExtensionStmt before deparsing it.
+ * Add "new_version" and "schema" DefElem items (if not specified in
+ * statement) to "options" list before deparsing the statement.
  */
 static void
-AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *stmt)
+AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt)
 {
-	List *optionsList = stmt->options;
+	List *optionsList = createExtensionStmt->options;
 
 	const char *newVersion = GetCreateExtensionOption(optionsList, "new_version");
 	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
 
 	if (!newVersion)
 	{
-		/* TODO: find the latest version available version of the extension in coordinator and append it instead of "version_num" */
+		char *extensionName = createExtensionStmt->extname;
 
-		char *extensionName = stmt->extname;
+		/*
+		 * Get the latest available version of the extension from
+		 * pg_available_extensions() to ensure version consistency
+		 * between worker nodes and coordinator.
+		 */
 		char *extensionDefaultVersion = GetDefaultExtensionVersion(extensionName);
-		DefElem *newDefElement = makeDefElem("new_version", (Node *) (makeString(
-																		  extensionDefaultVersion)),
-											 -1);
-		stmt->options = lappend(stmt->options, newDefElement);
+
+		Node *extensionVersionArg = (Node *) (makeString(extensionDefaultVersion));
+
+		/* Set location to -1 as it is unknown */
+		int location = -1;
+
+		DefElem *newDefElement = makeDefElem("new_version", extensionVersionArg,
+											 location);
+
+		createExtensionStmt->options = lappend(createExtensionStmt->options,
+											   newDefElement);
 	}
 	if (!schemaName)
 	{
 		char *currentSchemaName = GetCurrentSchema();
 
-		DefElem *newDefElement = makeDefElem("schema", (Node *) (makeString(
-																	 currentSchemaName)),
-											 -1);
-		stmt->options = lappend(stmt->options, newDefElement);
+		Node *schemaNameArg = (Node *) (makeString(currentSchemaName));
+
+		/* Set location to -1 as it is unknown */
+		int location = -1;
+
+		DefElem *newDefElement = makeDefElem("schema", schemaNameArg, location);
+
+		createExtensionStmt->options = lappend(createExtensionStmt->options,
+											   newDefElement);
 	}
 }
 
 
+/*
+ * Utility function to fetch the string value of DefElem node with "defname"
+ * from "options" list
+ */
 const char *
-GetCreateExtensionOption(List *defElemOptions, const char *optionName)
+GetCreateExtensionOption(List *extensionOptions, const char *defname)
 {
-	const char *targetArg = NULL;
+	const char *targetStr = NULL;
 
-	ListCell *optionsCell = NULL;
+	ListCell *defElemCell = NULL;
 
-	foreach(optionsCell, defElemOptions)
+	foreach(defElemCell, extensionOptions)
 	{
-		DefElem *defElement = (DefElem *) lfirst(optionsCell);
+		DefElem *defElement = (DefElem *) lfirst(defElemCell);
 
-		if (IsA(defElement, DefElem) && strncmp(defElement->defname, optionName,
+		if (IsA(defElement, DefElem) && strncmp(defElement->defname, defname,
 												NAMEDATALEN) == 0)
 		{
-			targetArg = strVal(defElement->arg);
+			targetStr = strVal(defElement->arg);
 			break;
 		}
 	}
 
-	return targetArg;
+	return targetStr;
 }
 
 
 /*
- * TODO: add comments: Cannot return NULL, errors out as Postgres would do if NULL
- *
- */
-static char *
-GetCurrentSchema(void)
-{
-	/*
-	 * Neither user nor author of the extension specified schema; use the
-	 * current default creation namespace, which is the first explicit
-	 * entry in the search_path.
-	 */
-	List *search_path = fetch_search_path(false);
-	Oid schemaOid = InvalidOid;
-	char *schemaName = NULL;
-
-	if (search_path == NIL) /* nothing valid in search_path? */
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_SCHEMA),
-				 errmsg("no schema has been selected to create in")));
-	}
-	schemaOid = linitial_oid(search_path);
-	schemaName = get_namespace_name(schemaOid);
-	if (schemaName == NULL) /* recently-deleted namespace? */
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_SCHEMA),
-				 errmsg("no schema has been selected to create in")));
-	}
-
-	list_free(search_path);
-
-	return pstrdup(schemaName);
-}
-
-
-/*
- * TODO: add comment
- *
- *
- * Cannot return NULL, it'd error out as Postgres does if the version is not avalible
+ * Get the latest available version of the extension with name "extname"
+ * from pg_available_extensions udf.
+ * Cannot return NULL, it'd error out as Postgres does if the version is
+ * not avalible
  */
 static char *
 GetDefaultExtensionVersion(char *extname)
@@ -451,7 +311,6 @@ GetDefaultExtensionVersion(char *extname)
 			defaultVersionDatum = slot_getattr(tupleTableSlot, defaultVersionAttrNumber,
 											   &isNull);
 
-
 			if (!isNull)
 			{
 				text *versionText = DatumGetTextP(defaultVersionDatum);
@@ -492,4 +351,217 @@ FunctionCallGetTupleStore(PGFunction function, Oid functionId)
 	(*function)(fcinfo);
 
 	return rsinfo;
+}
+
+
+/*
+ * Get the name of the schema that the coordinator would pick primarily
+ * for a CREATE EXTENSION statement that does not include "WITH SCHEMA"
+ * clause.
+ * Cannot return NULL, errors out as Postgres would do if NULL.
+ */
+static char *
+GetCurrentSchema(void)
+{
+	/*
+	 * Neither user nor author of the extension specified schema; use the
+	 * current default creation namespace, which is the first explicit
+	 * entry in the search_path.
+	 */
+	List *search_path = fetch_search_path(false);
+	Oid schemaOid = InvalidOid;
+	char *schemaName = NULL;
+
+	if (search_path == NIL) /* nothing valid in search_path? */
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_SCHEMA),
+				 errmsg("no schema has been selected to create in")));
+	}
+	schemaOid = linitial_oid(search_path);
+	schemaName = get_namespace_name(schemaOid);
+	if (schemaName == NULL) /* recently-deleted namespace? */
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_SCHEMA),
+				 errmsg("no schema has been selected to create in")));
+	}
+
+	list_free(search_path);
+
+	return pstrdup(schemaName);
+}
+
+
+/*
+ * ProcessCreateExtensionStmt is executed after the extension has been
+ * created locally and before we create it on the worker nodes.
+ * As we now have access to ObjectAddress of the extension that is just
+ * created, we can mark it as distributed to make sure that its
+ * dependencies exist on all nodes.
+ */
+void
+ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
+{
+	const ObjectAddress *extensionAddress = NULL;
+
+	if (!ShouldPropagateCreateDropExtension())
+	{
+		return;
+	}
+
+	extensionAddress = GetObjectAddressFromParseTree((Node *) stmt, false);
+
+	EnsureDependenciesExistsOnAllNodes(extensionAddress);
+
+	MarkObjectDistributed(extensionAddress);
+}
+
+
+/*
+ * PlanDropExtensionStmt is called to drop extension(s) in coordinator and
+ * in worker nodes if distributed before.
+ * We first ensure that we keep only the distributed ones before propagating
+ * the statement to worker nodes.
+ * If no extensions in the drop list are distributed, then no calls will
+ * be made to the workers.
+ */
+List *
+PlanDropExtensionStmt(DropStmt *stmt, const char *queryString)
+{
+	List *oldObjects = stmt->objects;
+
+	List *distributedExtensions = NIL;
+	List *distributedExtensionAddresses = NIL;
+
+	List *commands = NIL;
+	const char *deparsedStmt = NULL;
+
+	ListCell *addressCell = NULL;
+
+	if (!ShouldPropagateCreateDropExtension())
+	{
+		return NIL;
+	}
+
+	/* Get distributed extensions to be dropped in worker nodes as well */
+	distributedExtensions = FilterDistributedExtensions(oldObjects);
+
+	if (list_length(distributedExtensions) <= 0)
+	{
+		/* no distributed extensions to drop */
+		return NIL;
+	}
+
+	/* Extension management can only be done via coordinator node */
+	EnsureCoordinator();
+
+	distributedExtensionAddresses = ExtensionNameListToObjectAddresses(
+		distributedExtensions);
+
+	/* Unmark each distributed extension */
+	foreach(addressCell, distributedExtensionAddresses)
+	{
+		ObjectAddress *address = (ObjectAddress *) lfirst(addressCell);
+		UnmarkObjectDistributed(address);
+	}
+
+	/*
+	 * Temporary swap the lists of objects to delete with the distributed
+	 * objects and deparse to an sql statement for the workers.
+	 * Then switch back to oldObjects to drop all specified extensions in
+	 * coordinator after PlanDropExtensionStmt completes its execution.
+	 */
+	stmt->objects = distributedExtensions;
+	deparsedStmt = DeparseTreeNode((Node *) stmt);
+
+	stmt->objects = oldObjects;
+
+	commands = list_make3(DISABLE_DDL_PROPAGATION,
+						  (void *) deparsedStmt,
+						  ENABLE_DDL_PROPAGATION);
+
+	return NodeDDLTaskList(ALL_WORKERS, commands);
+}
+
+
+/*
+ * Given the "objects" list of a DropStmt, return the distributed ones in
+ * a Value(String) list.
+ */
+static List *
+FilterDistributedExtensions(List *objects)
+{
+	List *result = NIL;
+
+	bool missingOk = true;
+	ListCell *objectCell = NULL;
+
+	foreach(objectCell, objects)
+	{
+		char *extensionName = strVal(lfirst(objectCell));
+
+		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
+
+		Oid extensionoid = get_extension_oid(extensionName, missingOk);
+
+		if (!OidIsValid(extensionoid))
+		{
+			continue;
+		}
+
+		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
+
+		if (!IsObjectDistributed(address))
+		{
+			continue;
+		}
+
+		result = lappend(result, makeString(extensionName));
+	}
+
+	return result;
+}
+
+
+/*
+ * Given the "objects" list of a DropStmt, return the object addresses in
+ * an ObjectAddress list.
+ * Callers of this function should ensure that all the objects in the list
+ * are valid and distributed.
+ */
+static List *
+ExtensionNameListToObjectAddresses(List *objects)
+{
+	List *result = NIL;
+
+	bool missingOk = true;
+	ListCell *objectCell = NULL;
+
+	foreach(objectCell, objects)
+	{
+		const char *extensionName = strVal(lfirst(objectCell));
+
+		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
+
+		Oid extensionoid = get_extension_oid(extensionName, missingOk);
+
+		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
+
+		result = lappend(result, address);
+	}
+
+	return result;
+}
+
+
+static bool
+ShouldPropagateCreateDropExtension(void)
+{
+	if (!EnableDependencyCreation)
+	{
+		/* if we disabled object propagation, then we should not propagate anything */
+		return false;
+	}
+	return true;
 }

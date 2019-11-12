@@ -30,8 +30,9 @@ extern bool CallDistributedProcedureRemotely(CallStmt *callStmt, DestReceiver *d
 extern bool IsCitusExtensionStmt(Node *parsetree);
 extern void ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parsetree);
 List * PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString);
-extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString);
-extern List * ProcessDropExtensionStmt(DropStmt *stmt, const char *queryString);
+extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const
+									   char *queryString);
+extern List * PlanDropExtensionStmt(DropStmt *stmt, const char *queryString);
 
 
 /* foreign_constraint.c - forward declarations */

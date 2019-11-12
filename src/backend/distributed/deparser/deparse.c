@@ -129,6 +129,11 @@ DeparseDropStmt(DropStmt *stmt)
 			return DeparseDropFunctionStmt(stmt);
 		}
 
+		case OBJECT_EXTENSION:
+		{
+			return DeparseDropExtensionStmt(stmt);
+		}
+
 		default:
 		{
 			ereport(ERROR, (errmsg("unsupported drop statement for deparsing")));

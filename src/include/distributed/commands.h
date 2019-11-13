@@ -33,7 +33,7 @@ extern List * PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *que
 extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const
 									   char *queryString);
 extern List * PlanDropExtensionStmt(DropStmt *stmt, const char *queryString);
-
+List * CreateExtensionDDLCommand(const ObjectAddress *extensionAddress);
 
 /* foreign_constraint.c - forward declarations */
 extern bool ConstraintIsAForeignKeyToReferenceTable(char *constraintName,

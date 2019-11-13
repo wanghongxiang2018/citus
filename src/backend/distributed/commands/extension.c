@@ -13,6 +13,7 @@
 #include "citus_version.h"
 #include "catalog/pg_extension_d.h"
 #include "commands/extension.h"
+#include "distributed/citus_ruleutils.h"
 #include "distributed/commands.h"
 #include "distributed/commands/utility_hook.h"
 #include "distributed/deparser.h"
@@ -34,6 +35,8 @@ static char * GetCurrentSchema(void);
 static List * FilterDistributedExtensions(List *objects);
 static List * ExtensionNameListToObjectAddresses(List *objects);
 static bool ShouldPropagateCreateDropExtension(void);
+static Node * RecreateExtensionStmt(Oid extensionOid);
+
 
 /*
  * IsCitusExtensionStmt returns whether a given utility is a CREATE or ALTER
@@ -564,4 +567,56 @@ ShouldPropagateCreateDropExtension(void)
 		return false;
 	}
 	return true;
+}
+
+
+/*
+ * CreateTypeDDLCommandsIdempotent returns a list of DDL statements (const char *) to be
+ * executed on a node to recreate the type addressed by the typeAddress.
+ */
+List *
+CreateExtensionDDLCommand(const ObjectAddress *extensionAddress)
+{
+	List *ddlCommands = NIL;
+	const char *ddlCommand = NULL;
+	Node *stmt = NULL;
+
+	stmt = RecreateExtensionStmt(extensionAddress->objectId);
+
+	/* capture ddl command for recreation and wrap in create if not exists construct */
+	ddlCommand = DeparseTreeNode(stmt);
+	ddlCommands = lappend(ddlCommands, (void *) ddlCommand);
+
+	return ddlCommands;
+}
+
+
+/*
+ * RecreateEnumStmt returns a parsetree for a CREATE TYPE ... AS ENUM statement that would
+ * recreate the given enum type.
+ */
+static Node *
+RecreateExtensionStmt(Oid extensionOid)
+{
+	CreateExtensionStmt *stmt = makeNode(CreateExtensionStmt);
+	DefElem *schemaOption = NULL;
+	DefElem *extensionVersionOption = NULL;
+	Oid extensionSchemaOid = InvalidOid;
+	char *extensionSchemaName = NULL;
+	char *extensionName = get_extension_name(extensionOid);
+	char *defaultExtensionVersion = GetDefaultExtensionVersion(extensionName);
+
+	stmt->extname = extensionName;
+	stmt->if_not_exists = true;
+
+	extensionSchemaOid = get_extension_schema(extensionOid);
+	extensionSchemaName = get_namespace_name(extensionSchemaOid);
+	schemaOption = makeDefElem("schema", (Node *) makeString(extensionSchemaName), -1);
+
+	extensionVersionOption =
+		makeDefElem("new_version", (Node *) makeString(defaultExtensionVersion), -1);
+
+	stmt->options = list_make2(schemaOption, extensionVersionOption);
+
+	return (Node *) stmt;
 }

@@ -40,8 +40,8 @@ static const char * DeparseAlterObjectDependsStmt(AlterObjectDependsStmt *stmt);
  *
  *  - ALTER PROCEDURE
  *  - DROP PROCEDURE
- * 
- * 	- CREATE EXTENSION
+ *
+ *  - CREATE EXTENSION
  *  - DROP EXTENSION
  */
 const char *

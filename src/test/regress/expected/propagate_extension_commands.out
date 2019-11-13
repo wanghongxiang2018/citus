@@ -57,14 +57,6 @@ BEGIN;
  
 (1 row)
 
-  -- and the extension is created on the workers
-	SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname = 'isn'$$);
- run_command_on_workers 
-------------------------
- (localhost,57637,t,0)
- (localhost,57638,t,0)
-(2 rows)
-
 	-- now, update to a newer version
 	ALTER EXTENSION isn UPDATE TO '1.2';
 	-- now change the schema

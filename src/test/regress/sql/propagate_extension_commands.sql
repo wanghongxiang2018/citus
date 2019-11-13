@@ -36,9 +36,6 @@ BEGIN;
 	CREATE TABLE ref_table (a public.issn);
 	SELECT create_reference_table('ref_table');
 
-  -- and the extension is created on the workers
-	SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname = 'isn'$$);
-
 	-- now, update to a newer version
 	ALTER EXTENSION isn UPDATE TO '1.2';
 

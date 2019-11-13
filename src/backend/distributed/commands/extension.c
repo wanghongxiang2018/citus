@@ -26,15 +26,13 @@
 
 
 /* Local functions forward declarations for helper functions */
-static char * ExtractNewExtensionVersion(Node *parsetree);
-static void AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *stmt);
-static char * GetDefaultExtensionVersion(char *extname);
-static ReturnSetInfo * FunctionCallGetTupleStore(PGFunction function, Oid functionId);
+static char * ExtractNewExtensionVersion(Node *parseTree);
+static void AddSchemaFieldIfMissing(CreateExtensionStmt *stmt);
 static char * GetCurrentSchema(void);
-static List * FilterDistributedExtensions(List *objects);
-static List * ExtensionNameListToObjectAddresses(List *objects);
+static List * FilterDistributedExtensions(List *extensionObjectList);
+static List * ExtensionNameListToObjectAddressList(List *extensionObjectList);
 static bool ShouldPropagateExtensionCommand(Node *parseTree);
-static bool IsDropCitusStmt(Node *parsetree);
+static bool IsDropCitusStmt(Node *parseTree);
 
 
 /*
@@ -44,9 +42,9 @@ static bool IsDropCitusStmt(Node *parsetree);
  * out. It ignores the schema version.
  */
 void
-ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parsetree)
+ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parseTree)
 {
-	char *newExtensionVersion = ExtractNewExtensionVersion(parsetree);
+	char *newExtensionVersion = ExtractNewExtensionVersion(parseTree);
 
 	if (newExtensionVersion != NULL)
 	{
@@ -78,19 +76,19 @@ ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parsetree)
  * function returns NULL for statements with no explicit version specified.
  */
 static char *
-ExtractNewExtensionVersion(Node *parsetree)
+ExtractNewExtensionVersion(Node *parseTree)
 {
 	char *newVersion = NULL;
 	List *optionsList = NIL;
 	ListCell *optionsCell = NULL;
 
-	if (IsA(parsetree, CreateExtensionStmt))
+	if (IsA(parseTree, CreateExtensionStmt))
 	{
-		optionsList = ((CreateExtensionStmt *) parsetree)->options;
+		optionsList = ((CreateExtensionStmt *) parseTree)->options;
 	}
-	else if (IsA(parsetree, AlterExtensionStmt))
+	else if (IsA(parseTree, AlterExtensionStmt))
 	{
-		optionsList = ((AlterExtensionStmt *) parsetree)->options;
+		optionsList = ((AlterExtensionStmt *) parseTree)->options;
 	}
 	else
 	{
@@ -108,7 +106,15 @@ ExtractNewExtensionVersion(Node *parsetree)
 		}
 	}
 
-	return newVersion;
+	/* return target string safely */
+	if (newVersion)
+	{
+		return pstrdup(newVersion);
+	}
+	else
+	{
+		return NULL;
+	}
 }
 
 
@@ -130,15 +136,14 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 		return NIL;
 	}
 
-	/* Extension management can only be done via coordinator node */
+	/* extension management can only be done via coordinator node */
 	EnsureCoordinator();
 
 	/*
-	 * Here we append "new_version" and "schema" fields to the "options" list
-	 * if not specified to satisfy the version and schema consistency
-	 * between worker nodes and the coordinator.
+	 * Here we append "schema" field to the "options" list (if not specified)
+	 * to satisfy the version consistency between worker nodes and the coordinator.
 	 */
-	AddMissingFieldsCreateExtensionStmt(createExtensionStmt);
+	AddSchemaFieldIfMissing(createExtensionStmt);
 
 	createExtensionStmtSql = DeparseTreeNode((Node *) createExtensionStmt);
 
@@ -155,46 +160,24 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 
 
 /*
- * Add "new_version" and "schema" DefElem items (if not specified in
- * statement) to "options" list before deparsing the statement.
+ * Add DefElem item for "schema" (if not specified in statement) to "options"
+ * list before deparsing the statement to satisfy the version consistency
+ * between worker nodes and the coordinator.
  */
 static void
-AddMissingFieldsCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt)
+AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
 {
 	List *optionsList = createExtensionStmt->options;
 
-	const char *newVersion = GetCreateExtensionOption(optionsList, "new_version");
 	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
 
-	if (!newVersion)
-	{
-		char *extensionName = createExtensionStmt->extname;
-
-		/*
-		 * Get the latest available version of the extension from
-		 * pg_available_extensions() to ensure version consistency
-		 * between worker nodes and coordinator.
-		 */
-		char *extensionDefaultVersion = GetDefaultExtensionVersion(extensionName);
-
-		Node *extensionVersionArg = (Node *) (makeString(extensionDefaultVersion));
-
-		/* Set location to -1 as it is unknown */
-		int location = -1;
-
-		DefElem *newDefElement = makeDefElem("new_version", extensionVersionArg,
-											 location);
-
-		createExtensionStmt->options = lappend(createExtensionStmt->options,
-											   newDefElement);
-	}
 	if (!schemaName)
 	{
 		char *currentSchemaName = GetCurrentSchema();
 
-		Node *schemaNameArg = (Node *) (makeString(currentSchemaName));
+		Node *schemaNameArg = (Node *) makeString(currentSchemaName);
 
-		/* Set location to -1 as it is unknown */
+		/* set location to -1 as it is unknown */
 		int location = -1;
 
 		DefElem *newDefElement = makeDefElem("schema", schemaNameArg, location);
@@ -228,113 +211,20 @@ GetCreateExtensionOption(List *extensionOptions, const char *defname)
 		}
 	}
 
-	return targetStr;
-}
-
-
-/*
- * Get the latest available version of the extension with name "extname"
- * from pg_available_extensions udf.
- * Cannot return NULL, it'd error out as Postgres does if the version is
- * not avalible
- */
-static char *
-GetDefaultExtensionVersion(char *extname)
-{
-	TupleTableSlot *tupleTableSlot = NULL;
-	ReturnSetInfo *resultSetInfo = NULL;
-	FmgrInfo *fmgrAvaliableExtensions = (FmgrInfo *) palloc0(sizeof(FmgrInfo));
-	Oid pgavaliableExtensionsOid =
-		FunctionOidExtended("pg_catalog", "pg_available_extensions", 0, false);
-
-	fmgr_info(pgavaliableExtensionsOid, fmgrAvaliableExtensions);
-
-	resultSetInfo =
-		FunctionCallGetTupleStore(fmgrAvaliableExtensions->fn_addr,
-								  pgavaliableExtensionsOid);
-
-	tupleTableSlot = MakeSingleTupleTableSlotCompat(resultSetInfo->setDesc,
-													&TTSOpsMinimalTuple);
-
-	while (true)
+	/* return target string safely */
+	if (targetStr)
 	{
-		bool tuplePresent = false;
-		bool isNull = false;
-
-		const int extensionNameAttrNumber = 1;
-		Datum extensionNameDatum = 0;
-		Name extensionName = NULL;
-
-		Datum defaultVersionDatum = 0;
-		const int defaultVersionAttrNumber = 2;
-
-		tuplePresent = tuplestore_gettupleslot(resultSetInfo->setResult,
-											   true, false, tupleTableSlot);
-		if (!tuplePresent)
-		{
-			/* no more rows */
-			break;
-		}
-
-		extensionNameDatum =
-			slot_getattr(tupleTableSlot, extensionNameAttrNumber, &isNull);
-		if (isNull)
-		{
-			/* is this ever possible? Be on the safe side */
-			continue;
-		}
-
-		extensionName = DatumGetName(extensionNameDatum);
-		if (pg_strncasecmp(extensionName->data, extname, NAMEDATALEN) == 0)
-		{
-			defaultVersionDatum = slot_getattr(tupleTableSlot, defaultVersionAttrNumber,
-											   &isNull);
-
-			if (!isNull)
-			{
-				text *versionText = DatumGetTextP(defaultVersionDatum);
-
-				return text_to_cstring(versionText);
-			}
-		}
+		return pstrdup(targetStr);
 	}
-
-	/* couldn't find the name, this is not acceptable, Postgres would error as well */
-	ereport(ERROR,
-			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			 errmsg("invalid extension version name: \"%s\"", extname),
-			 errdetail("Version names must not be empty.")));
-
-	/* keep compilers happy */
-	return NULL;
+	else
+	{
+		return NULL;
+	}
 }
 
 
 /*
- * FunctionCallGetTupleStore calls the given set-returning PGFunction and
- * returns the ResultSetInfo filled by the called function.
- */
-static ReturnSetInfo *
-FunctionCallGetTupleStore(PGFunction function, Oid functionId)
-{
-	LOCAL_FCINFO(fcinfo, 1);
-	FmgrInfo flinfo;
-	ReturnSetInfo *rsinfo = makeNode(ReturnSetInfo);
-	EState *estate = CreateExecutorState();
-	rsinfo->econtext = GetPerTupleExprContext(estate);
-	rsinfo->allowedModes = SFRM_Materialize;
-
-	fmgr_info(functionId, &flinfo);
-	InitFunctionCallInfoData(*fcinfo, &flinfo, 0, InvalidOid, NULL, (Node *) rsinfo);
-
-	(*function)(fcinfo);
-
-	return rsinfo;
-}
-
-
-/*
- * Get the name of the schema that the coordinator would pick primarily
+ * Get the name of the schema that the postgres would pick primarily
  * for a CREATE EXTENSION statement that does not include "WITH SCHEMA"
  * clause.
  * Cannot return NULL, errors out as Postgres would do if NULL.
@@ -351,7 +241,8 @@ GetCurrentSchema(void)
 	Oid schemaOid = InvalidOid;
 	char *schemaName = NULL;
 
-	if (search_path == NIL) /* nothing valid in search_path? */
+	/* nothing valid in search_path? */
+	if (search_path == NIL)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_SCHEMA),
@@ -359,7 +250,9 @@ GetCurrentSchema(void)
 	}
 	schemaOid = linitial_oid(search_path);
 	schemaName = get_namespace_name(schemaOid);
-	if (schemaName == NULL) /* recently-deleted namespace? */
+
+	/* recently-deleted namespace? */
+	if (schemaName == NULL)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_SCHEMA),
@@ -409,7 +302,7 @@ ProcessCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const
 List *
 PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 {
-	List *oldObjects = dropStmt->objects;
+	List *allDroppedExtensions = dropStmt->objects;
 
 	List *distributedExtensions = NIL;
 	List *distributedExtensionAddresses = NIL;
@@ -424,8 +317,8 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 		return NIL;
 	}
 
-	/* Get distributed extensions to be dropped in worker nodes as well */
-	distributedExtensions = FilterDistributedExtensions(oldObjects);
+	/* get distributed extensions to be dropped in worker nodes as well */
+	distributedExtensions = FilterDistributedExtensions(allDroppedExtensions);
 
 	if (list_length(distributedExtensions) <= 0)
 	{
@@ -433,13 +326,13 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 		return NIL;
 	}
 
-	/* Extension management can only be done via coordinator node */
+	/* extension management can only be done via coordinator node */
 	EnsureCoordinator();
 
-	distributedExtensionAddresses = ExtensionNameListToObjectAddresses(
+	distributedExtensionAddresses = ExtensionNameListToObjectAddressList(
 		distributedExtensions);
 
-	/* Unmark each distributed extension */
+	/* unmark each distributed extension */
 	foreach(addressCell, distributedExtensionAddresses)
 	{
 		ObjectAddress *address = (ObjectAddress *) lfirst(addressCell);
@@ -449,14 +342,19 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 	/*
 	 * Temporary swap the lists of objects to delete with the distributed
 	 * objects and deparse to an sql statement for the workers.
-	 * Then switch back to oldObjects to drop all specified extensions in
-	 * coordinator after PlanDropExtensionStmt completes its execution.
+	 * Then switch back to allDroppedExtensions to drop all specified
+	 * extensions in coordinator after PlanDropExtensionStmt completes
+	 * its execution.
 	 */
 	dropStmt->objects = distributedExtensions;
 	deparsedStmt = DeparseTreeNode((Node *) dropStmt);
 
-	dropStmt->objects = oldObjects;
+	dropStmt->objects = allDroppedExtensions;
 
+	/*
+	 * To prevent recursive propagation in mx architecture, we disable ddl
+	 * propagation before sending the command to workers.
+	 */
 	commands = list_make3(DISABLE_DDL_PROPAGATION,
 						  (void *) deparsedStmt,
 						  ENABLE_DDL_PROPAGATION);
@@ -466,41 +364,41 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 
 
 /*
- * Given the "objects" list of a DropStmt, return the distributed ones in
- * a Value(String) list.
+ * Given the "objects" list of a DropStmt, return the distributed objects in a
+ * list having the format of a "DropStmt.objects" list (a list of string "Value"s).
  */
 static List *
-FilterDistributedExtensions(List *objects)
+FilterDistributedExtensions(List *extensionObjectList)
 {
-	List *result = NIL;
+	List *extensionNameList = NIL;
 
 	bool missingOk = true;
 	ListCell *objectCell = NULL;
 
-	foreach(objectCell, objects)
+	foreach(objectCell, extensionObjectList)
 	{
 		char *extensionName = strVal(lfirst(objectCell));
 
 		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
 
-		Oid extensionoid = get_extension_oid(extensionName, missingOk);
+		Oid extensionOid = get_extension_oid(extensionName, missingOk);
 
-		if (!OidIsValid(extensionoid))
+		if (!OidIsValid(extensionOid))
 		{
 			continue;
 		}
 
-		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
+		ObjectAddressSet(*address, ExtensionRelationId, extensionOid);
 
 		if (!IsObjectDistributed(address))
 		{
 			continue;
 		}
 
-		result = lappend(result, makeString(extensionName));
+		extensionNameList = lappend(extensionNameList, makeString(extensionName));
 	}
 
-	return result;
+	return extensionNameList;
 }
 
 
@@ -511,27 +409,32 @@ FilterDistributedExtensions(List *objects)
  * are valid and distributed.
  */
 static List *
-ExtensionNameListToObjectAddresses(List *objects)
+ExtensionNameListToObjectAddressList(List *extensionObjectList)
 {
-	List *result = NIL;
+	List *extensionObjectAddressList = NIL;
 
-	bool missingOk = true;
+	/*
+	 * We set missingOk to false as we assume all the objects in
+	 * extensionObjectList list are valid and distributed.
+	 */
+	bool missingOk = false;
+
 	ListCell *objectCell = NULL;
 
-	foreach(objectCell, objects)
+	foreach(objectCell, extensionObjectList)
 	{
 		const char *extensionName = strVal(lfirst(objectCell));
 
 		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
 
-		Oid extensionoid = get_extension_oid(extensionName, missingOk);
+		Oid extensionOid = get_extension_oid(extensionName, missingOk);
 
-		ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
+		ObjectAddressSet(*address, ExtensionRelationId, extensionOid);
 
-		result = lappend(result, address);
+		extensionObjectAddressList = lappend(extensionObjectAddressList, address);
 	}
 
-	return result;
+	return extensionObjectAddressList;
 }
 
 
@@ -552,7 +455,7 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 	{
 		return false;
 	}
-	if (IsDropCitusStmt(parseTree))
+	else if (IsDropCitusStmt(parseTree))
 	{
 		return false;
 	}
@@ -567,17 +470,17 @@ ShouldPropagateExtensionCommand(Node *parseTree)
  * returns false for all other inputs.
  */
 bool
-IsCreateAlterCitusStmt(Node *parsetree)
+IsCreateAlterCitusStmt(Node *parseTree)
 {
-	char *extensionName = "";
+	char *extensionName = NULL;
 
-	if (IsA(parsetree, CreateExtensionStmt))
+	if (IsA(parseTree, CreateExtensionStmt))
 	{
-		extensionName = ((CreateExtensionStmt *) parsetree)->extname;
+		extensionName = ((CreateExtensionStmt *) parseTree)->extname;
 	}
-	else if (IsA(parsetree, AlterExtensionStmt))
+	else if (IsA(parseTree, AlterExtensionStmt))
 	{
-		extensionName = ((AlterExtensionStmt *) parsetree)->extname;
+		extensionName = ((AlterExtensionStmt *) parseTree)->extname;
 	}
 	else
 	{
@@ -600,18 +503,18 @@ IsCreateAlterCitusStmt(Node *parsetree)
  * Iterate objects to be dropped in a drop statement and try to find citus there
  */
 static bool
-IsDropCitusStmt(Node *parsetree)
+IsDropCitusStmt(Node *parseTree)
 {
 	ListCell *objectCell = NULL;
 
-	/* If it is not a DropStmt, it is needless to search for citus */
-	if (!IsA(parsetree, DropStmt))
+	/* if it is not a DropStmt, it is needless to search for citus */
+	if (!IsA(parseTree, DropStmt))
 	{
 		return false;
 	}
 
-	/* Now that we have a DropStmt, check if citus is among the objects to dropped */
-	foreach(objectCell, ((DropStmt *) parsetree)->objects)
+	/* now that we have a DropStmt, check if citus is among the objects to dropped */
+	foreach(objectCell, ((DropStmt *) parseTree)->objects)
 	{
 		char *extensionName = strVal(lfirst(objectCell));
 

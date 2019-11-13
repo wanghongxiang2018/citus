@@ -303,7 +303,7 @@ CreateExtensionStmtObjectAddress(CreateExtensionStmt *createExtensionStmt, bool
 
 	Oid extensionoid = get_extension_oid(extensionName, missing_ok);
 
-	/* If we couldn't find the extension, error if missing_ok is false */
+	/* if we couldn't find the extension, error if missing_ok is false */
 	if (!missing_ok && extensionoid == InvalidOid)
 	{
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),

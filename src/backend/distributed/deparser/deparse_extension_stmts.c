@@ -46,26 +46,33 @@ DeparseCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt)
 static void
 AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *createExtensionStmt)
 {
-	/*
-	 * Read required options from createExtensionStmt.
-	 * We do not fetch if_not_exist and cascade options as we will
-	 * append "IF NOT EXISTS" and "CASCADE" clauses regardless of
-	 * statement's content before propagating it to worker nodes.
-	 * We as also do not care old_version for now.
-	 */
 	const char *extensionName = createExtensionStmt->extname;
 
 	List *optionsList = createExtensionStmt->options;
 
+	/*
+	 * We do only fetch "new_version" and "schema" options from optionList
+	 * as we will append "IF NOT EXISTS" and "CASCADE" clauses regardless
+	 * of statement's content before propagating it to worker nodes.
+	 * We also do not care old_version for now.
+	 */
 	const char *newVersion = GetCreateExtensionOption(optionsList, "new_version");
 	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
 
-	newVersion = quote_identifier(newVersion);
 	schemaName = quote_identifier(schemaName);
 
-	appendStringInfo(str,
-					 "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s VERSION %s CASCADE",
-					 extensionName, schemaName, newVersion);
+	appendStringInfo(str, "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s",
+					 extensionName, schemaName);
+
+	/* "new_version" may not be specified in CreateExtensionStmt */
+	if (newVersion)
+	{
+		newVersion = quote_identifier(newVersion);
+
+		appendStringInfo(str, " VERSION %s", newVersion);
+	}
+
+	appendStringInfoString(str, " CASCADE;");
 }
 
 
@@ -85,22 +92,22 @@ DeparseDropExtensionStmt(DropStmt *dropStmt)
 
 
 /*
- * AppendDropExtensionStmt appends a string representing the DropStmt for an extension to a buffer.
+ * AppendDropExtensionStmt appends a string representing the DropStmt for
+ * an extension to a buffer.
  */
 static void
 AppendDropExtensionStmt(StringInfo str, DropStmt *dropStmt)
 {
+	/* we append "IF NOT EXISTS" clause regardless of the content of the statement. */
+	appendStringInfoString(str, "DROP EXTENSION IF EXISTS ");
+
 	/*
-	 * We do not fetch "missing_ok" and "behaviour" fields as we will
-	 * append "CASCADE" and "IF NOT EXISTS" clauses regardless of
-	 * the content of the statement.
 	 * Here we only need to fetch "objects" list that is storing the
 	 * object names to be deleted.
 	 */
-	appendStringInfoString(str, "DROP EXTENSION IF EXISTS ");
-
 	AppendExtensionNameList(str, dropStmt->objects);
 
+	/* we append "CASCADE" clause regardless of the content of the statement. */
 	appendStringInfoString(str, " CASCADE;");
 }
 

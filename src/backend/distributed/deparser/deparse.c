@@ -40,6 +40,9 @@ static const char * DeparseAlterObjectDependsStmt(AlterObjectDependsStmt *stmt);
  *
  *  - ALTER PROCEDURE
  *  - DROP PROCEDURE
+ * 
+ * 	- CREATE EXTENSION
+ *  - DROP EXTENSION
  */
 const char *
 DeparseTreeNode(Node *stmt)

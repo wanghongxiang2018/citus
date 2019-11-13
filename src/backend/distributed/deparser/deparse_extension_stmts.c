@@ -61,6 +61,7 @@ AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *createExtensionSt
 	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
 
 	newVersion = quote_identifier(newVersion);
+	schemaName = quote_identifier(schemaName);
 
 	appendStringInfo(str,
 					 "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s VERSION %s CASCADE",

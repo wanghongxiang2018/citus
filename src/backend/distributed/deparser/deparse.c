@@ -34,10 +34,10 @@ static const char * DeparseAlterObjectDependsStmt(AlterObjectDependsStmt *stmt);
  *  - CREATE TYPE
  *  - ALTER TYPE
  *  - DROP TYPE
- *  
+ *
  *  - ALTER FUNCTION, ALTER PROCEDURE, ALTER AGGREGATE
  *  - DROP FUNCTION, DROP PROCEDURE, DROP AGGREGATE
- * 
+ *
  *  - CREATE EXTENSION
  *  - ALTER EXTENSION
  *  - DROP EXTENSION

@@ -117,7 +117,7 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 {
 	Node *parsetree = pstmt->utilityStmt;
 	List *ddlJobs = NIL;
-	bool checkExtensionVersion = false;
+	bool checkCreateAlterExtensionVersion = false;
 
 	if (IsA(parsetree, TransactionStmt) ||
 		IsA(parsetree, LockStmt) ||
@@ -143,12 +143,11 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 		return;
 	}
 
-	checkExtensionVersion = IsCitusExtensionStmt(parsetree);
-	if (EnableVersionChecks && checkExtensionVersion)
+	checkCreateAlterExtensionVersion = IsCreateAlterCitusStmt(parsetree);
+	if (EnableVersionChecks && checkCreateAlterExtensionVersion)
 	{
 		ErrorIfUnstableCreateOrAlterExtensionStmt(parsetree);
 	}
-
 
 	if (!CitusHasBeenLoaded())
 	{

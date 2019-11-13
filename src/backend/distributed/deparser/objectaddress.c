@@ -111,7 +111,8 @@ GetObjectAddressFromParseTree(Node *parseTree, bool missing_ok)
 			ereport(ERROR, (errmsg(
 								"unsupported object type to get object address for DefineStmt")));
 			return NULL;
-    }
+		}
+
 		case T_CreateExtensionStmt:
 		{
 			return CreateExtensionStmtObjectAddress(castNode(CreateExtensionStmt,
@@ -284,12 +285,32 @@ AlterObjectDependsStmtObjectAddress(AlterObjectDependsStmt *stmt, bool missing_o
 }
 
 
+/*
+ * CreateExtensionStmtObjectAddress finds the ObjectAddress for the extension described
+ * by the CreateExtensionStmt. If missing_ok is false, then this function throws an
+ * error if the extension does not exist.
+ *
+ * Never returns NULL, but the objid in the address could be invalid if missing_ok was set
+ * to true.
+ */
 static const ObjectAddress *
-CreateExtensionStmtObjectAddress(CreateExtensionStmt *stmt, bool missing_ok)
+CreateExtensionStmtObjectAddress(CreateExtensionStmt *createExtensionStmt, bool
+								 missing_ok)
 {
 	ObjectAddress *address = palloc0(sizeof(ObjectAddress));
 
-	Oid extensionoid = get_extension_oid(stmt->extname, missing_ok);
+	const char *extensionName = createExtensionStmt->extname;
+
+	Oid extensionoid = get_extension_oid(extensionName, missing_ok);
+
+	/* If we couldn't find the extension, error if missing_ok is false */
+	if (!missing_ok && extensionoid == InvalidOid)
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),
+						errmsg("extension \"%s\" does not exist",
+							   extensionName)));
+	}
+
 	ObjectAddressSet(*address, ExtensionRelationId, extensionoid);
 
 	return address;

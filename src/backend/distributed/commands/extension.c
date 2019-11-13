@@ -33,29 +33,8 @@ static ReturnSetInfo * FunctionCallGetTupleStore(PGFunction function, Oid functi
 static char * GetCurrentSchema(void);
 static List * FilterDistributedExtensions(List *objects);
 static List * ExtensionNameListToObjectAddresses(List *objects);
-static bool ShouldPropagateCreateDropExtension(void);
-
-/*
- * IsCitusExtensionStmt returns whether a given utility is a CREATE or ALTER
- * EXTENSION statement which references the citus extension. This function
- * returns false for all other inputs.
- */
-bool
-IsCitusExtensionStmt(Node *parsetree)
-{
-	char *extensionName = "";
-
-	if (IsA(parsetree, CreateExtensionStmt))
-	{
-		extensionName = ((CreateExtensionStmt *) parsetree)->extname;
-	}
-	else if (IsA(parsetree, AlterExtensionStmt))
-	{
-		extensionName = ((AlterExtensionStmt *) parsetree)->extname;
-	}
-
-	return (strcmp(extensionName, "citus") == 0);
-}
+static bool ShouldPropagateExtensionCommand(Node *parseTree);
+static bool IsDropCitusStmt(Node *parsetree);
 
 
 /*
@@ -146,7 +125,7 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 	List *commands = NIL;
 	const char *createExtensionStmtSql = NULL;
 
-	if (!ShouldPropagateCreateDropExtension())
+	if (!ShouldPropagateExtensionCommand((Node *) createExtensionStmt))
 	{
 		return NIL;
 	}
@@ -401,16 +380,17 @@ GetCurrentSchema(void)
  * dependencies exist on all nodes.
  */
 void
-ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
+ProcessCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const
+						   char *queryString)
 {
 	const ObjectAddress *extensionAddress = NULL;
 
-	if (!ShouldPropagateCreateDropExtension())
+	if (!ShouldPropagateExtensionCommand((Node *) createExtensionStmt))
 	{
 		return;
 	}
 
-	extensionAddress = GetObjectAddressFromParseTree((Node *) stmt, false);
+	extensionAddress = GetObjectAddressFromParseTree((Node *) createExtensionStmt, false);
 
 	EnsureDependenciesExistsOnAllNodes(extensionAddress);
 
@@ -427,9 +407,9 @@ ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString)
  * be made to the workers.
  */
 List *
-PlanDropExtensionStmt(DropStmt *stmt, const char *queryString)
+PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 {
-	List *oldObjects = stmt->objects;
+	List *oldObjects = dropStmt->objects;
 
 	List *distributedExtensions = NIL;
 	List *distributedExtensionAddresses = NIL;
@@ -439,7 +419,7 @@ PlanDropExtensionStmt(DropStmt *stmt, const char *queryString)
 
 	ListCell *addressCell = NULL;
 
-	if (!ShouldPropagateCreateDropExtension())
+	if (!ShouldPropagateExtensionCommand((Node *) dropStmt))
 	{
 		return NIL;
 	}
@@ -472,10 +452,10 @@ PlanDropExtensionStmt(DropStmt *stmt, const char *queryString)
 	 * Then switch back to oldObjects to drop all specified extensions in
 	 * coordinator after PlanDropExtensionStmt completes its execution.
 	 */
-	stmt->objects = distributedExtensions;
-	deparsedStmt = DeparseTreeNode((Node *) stmt);
+	dropStmt->objects = distributedExtensions;
+	deparsedStmt = DeparseTreeNode((Node *) dropStmt);
 
-	stmt->objects = oldObjects;
+	dropStmt->objects = oldObjects;
 
 	commands = list_make3(DISABLE_DDL_PROPAGATION,
 						  (void *) deparsedStmt,
@@ -555,13 +535,91 @@ ExtensionNameListToObjectAddresses(List *objects)
 }
 
 
+/*
+ * If we disabled object propagation, then we should not propagate anything.
+ * Also, if extension command is run for/on citus, leave the rest to standard
+ * utility hook.
+ */
 static bool
-ShouldPropagateCreateDropExtension(void)
+ShouldPropagateExtensionCommand(Node *parseTree)
 {
 	if (!EnableDependencyCreation)
 	{
-		/* if we disabled object propagation, then we should not propagate anything */
 		return false;
 	}
+
+	if (IsCreateAlterCitusStmt(parseTree))
+	{
+		return false;
+	}
+	if (IsDropCitusStmt(parseTree))
+	{
+		return false;
+	}
+
 	return true;
+}
+
+
+/*
+ * IsCreateAlterCitusStmt returns whether a given utility is a CREATE or ALTER
+ * EXTENSION statement which references the citus extension. This function
+ * returns false for all other inputs.
+ */
+bool
+IsCreateAlterCitusStmt(Node *parsetree)
+{
+	char *extensionName = "";
+
+	if (IsA(parsetree, CreateExtensionStmt))
+	{
+		extensionName = ((CreateExtensionStmt *) parsetree)->extname;
+	}
+	else if (IsA(parsetree, AlterExtensionStmt))
+	{
+		extensionName = ((AlterExtensionStmt *) parsetree)->extname;
+	}
+	else
+	{
+		/*
+		 * If it is not a CreateExtensionStmt or AlterExtensionStmt,
+		 * it does not matter if the it is about citus
+		 */
+		return false;
+	}
+
+	/*
+	 * Now that we have CreateExtensionStmt or AlterExtensionStmt,
+	 * check if it is run for/on citus
+	 */
+	return (strncmp(extensionName, "citus", NAMEDATALEN) == 0);
+}
+
+
+/*
+ * Iterate objects to be dropped in a drop statement and try to find citus there
+ */
+static bool
+IsDropCitusStmt(Node *parsetree)
+{
+	ListCell *objectCell = NULL;
+
+	/* If it is not a DropStmt, it is needless to search for citus */
+	if (!IsA(parsetree, DropStmt))
+	{
+		return false;
+	}
+
+	/* Now that we have a DropStmt, check if citus is among the objects to dropped */
+	foreach(objectCell, ((DropStmt *) parsetree)->objects)
+	{
+		char *extensionName = strVal(lfirst(objectCell));
+
+		if (strncmp(extensionName, "citus", NAMEDATALEN) == 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }

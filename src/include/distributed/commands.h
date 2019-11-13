@@ -27,7 +27,7 @@ extern List * PlanClusterStmt(ClusterStmt *clusterStmt, const char *clusterComma
 extern bool CallDistributedProcedureRemotely(CallStmt *callStmt, DestReceiver *dest);
 
 /* extension.c - forward declarations */
-extern bool IsCitusExtensionStmt(Node *parsetree);
+extern bool IsCreateAlterCitusStmt(Node *parsetree);
 extern void ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parsetree);
 extern List * PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString);
 extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const

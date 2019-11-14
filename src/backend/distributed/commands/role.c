@@ -156,9 +156,8 @@ GenerateAlterRoleIfExistsCommand(HeapTuple tuple, TupleDesc pgAuthIdDescription)
 
 	stmt->options =
 		lappend(stmt->options,
-				makeDefElem(pstrdup("createrole"), (Node *) makeInteger(
-								role->rolcreaterole),
-							-1));
+				makeDefElem(pstrdup("createrole"),
+							(Node *) makeInteger(role->rolcreaterole), -1));
 
 	stmt->options =
 		lappend(stmt->options,
@@ -172,21 +171,18 @@ GenerateAlterRoleIfExistsCommand(HeapTuple tuple, TupleDesc pgAuthIdDescription)
 
 	stmt->options =
 		lappend(stmt->options,
-				makeDefElem(pstrdup("isreplication"), (Node *) makeInteger(
-								role->rolreplication),
-							-1));
+				makeDefElem(pstrdup("isreplication"),
+							(Node *) makeInteger(role->rolreplication), -1));
 
 	stmt->options =
 		lappend(stmt->options,
-				makeDefElem(pstrdup("bypassrls"), (Node *) makeInteger(
-								role->rolbypassrls),
-							-1));
-
+				makeDefElem(pstrdup("bypassrls"),
+							(Node *) makeInteger(role->rolbypassrls), -1));
 
 	stmt->options =
 		lappend(stmt->options,
-				makeDefElem(pstrdup("connectionlimit"), (Node *) makeInteger(
-								role->rolconnlimit),
+				makeDefElem(pstrdup("connectionlimit"),
+							(Node *) makeInteger(role->rolconnlimit),
 							-1));
 
 

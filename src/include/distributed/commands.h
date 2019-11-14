@@ -23,8 +23,10 @@
 /* cluster.c - forward declarations */
 extern List * PlanClusterStmt(ClusterStmt *clusterStmt, const char *clusterCommand);
 
+
 /* call.c */
 extern bool CallDistributedProcedureRemotely(CallStmt *callStmt, DestReceiver *dest);
+
 
 /* extension.c - forward declarations */
 extern bool IsCreateAlterCitusStmt(Node *parsetree);
@@ -33,6 +35,7 @@ extern List * PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *que
 extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const
 									   char *queryString);
 extern List * PlanDropExtensionStmt(DropStmt *stmt, const char *queryString);
+extern List * CreateExtensionDDLCommand(const ObjectAddress *extensionAddress);
 
 
 /* foreign_constraint.c - forward declarations */

@@ -13,6 +13,7 @@
 #include "citus_version.h"
 #include "catalog/pg_extension_d.h"
 #include "commands/extension.h"
+#include "distributed/citus_ruleutils.h"
 #include "distributed/commands.h"
 #include "distributed/commands/utility_hook.h"
 #include "distributed/deparser.h"
@@ -34,6 +35,7 @@ static List * FilterDistributedExtensions(List *extensionObjectList);
 static List * ExtensionNameListToObjectAddressList(List *extensionObjectList);
 static bool ShouldPropagateExtensionCommand(Node *parseTree);
 static bool IsDropCitusStmt(Node *parseTree);
+static Node * RecreateExtensionStmt(Oid extensionOid);
 
 
 /*
@@ -574,4 +576,56 @@ IsDropCitusStmt(Node *parseTree)
 	}
 
 	return false;
+}
+
+
+/*
+ * CreateTypeDDLCommandsIdempotent returns a list of DDL statements (const char *) to be
+ * executed on a node to recreate the extension addressed by the extensionAddress.
+ */
+List *
+CreateExtensionDDLCommand(const ObjectAddress *extensionAddress)
+{
+	List *ddlCommands = NIL;
+	const char *ddlCommand = NULL;
+
+	Node *stmt = NULL;
+
+	/* generate a statement for creation of the extension in "if not exists" construct */
+	stmt = RecreateExtensionStmt(extensionAddress->objectId);
+
+	/* capture ddl command for the create statement */
+	ddlCommand = DeparseTreeNode(stmt);
+
+	/*
+	 * To prevent recursive propagation in mx architecture, we disable ddl
+	 * propagation before sending the command to workers.
+	 */
+	ddlCommands = list_make3(DISABLE_DDL_PROPAGATION,
+							 (void *) ddlCommand,
+							 ENABLE_DDL_PROPAGATION);
+
+	return ddlCommands;
+}
+
+
+/*
+ * RecreateEnumStmt returns a parsetree for a CREATE EXTENSION statement that would
+ * recreate the given extension on a new node.
+ */
+static Node *
+RecreateExtensionStmt(Oid extensionOid)
+{
+	CreateExtensionStmt *stmt = makeNode(CreateExtensionStmt);
+
+	char *extensionName = get_extension_name(extensionOid);
+
+	/* set extension name and if_not_exists fields */
+	stmt->extname = extensionName;
+	stmt->if_not_exists = true;
+
+	/* append the missing schema name DefElem */
+	AddSchemaFieldIfMissing(stmt);
+
+	return (Node *) stmt;
 }

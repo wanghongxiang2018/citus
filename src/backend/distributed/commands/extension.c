@@ -16,10 +16,10 @@
 #include "distributed/commands.h"
 #include "distributed/commands/utility_hook.h"
 #include "distributed/deparser.h"
-#include "distributed/function_utils.h"
-#include "distributed/master_metadata_utility.h"
 #include "distributed/metadata_sync.h"
 #include "distributed/metadata/distobject.h"
+#include "distributed/multi_executor.h"
+#include "distributed/relation_access_tracking.h"
 #include "nodes/makefuncs.h"
 #include "utils/lsyscache.h"
 #include "utils/builtins.h"
@@ -29,6 +29,7 @@
 static char * ExtractNewExtensionVersion(Node *parseTree);
 static void AddSchemaFieldIfMissing(CreateExtensionStmt *stmt);
 static char * GetCurrentSchema(void);
+static void EnsureSequentialModeForExtensionDDL(void);
 static List * FilterDistributedExtensions(List *extensionObjectList);
 static List * ExtensionNameListToObjectAddressList(List *extensionObjectList);
 static bool ShouldPropagateExtensionCommand(Node *parseTree);
@@ -138,6 +139,12 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 
 	/* extension management can only be done via coordinator node */
 	EnsureCoordinator();
+
+	/*
+	 * Make sure that the current transaction is already in sequential mode,
+	 * or can still safely be put in sequential mode
+	 */
+	EnsureSequentialModeForExtensionDDL();
 
 	/*
 	 * Here we append "schema" field to the "options" list (if not specified)
@@ -317,6 +324,15 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 		return NIL;
 	}
 
+	/* extension management can only be done via coordinator node */
+	EnsureCoordinator();
+
+	/*
+	 * Make sure that the current transaction is already in sequential mode,
+	 * or can still safely be put in sequential mode
+	 */
+	EnsureSequentialModeForExtensionDDL();
+
 	/* get distributed extensions to be dropped in worker nodes as well */
 	distributedExtensions = FilterDistributedExtensions(allDroppedExtensions);
 
@@ -325,9 +341,6 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 		/* no distributed extensions to drop */
 		return NIL;
 	}
-
-	/* extension management can only be done via coordinator node */
-	EnsureCoordinator();
 
 	distributedExtensionAddresses = ExtensionNameListToObjectAddressList(
 		distributedExtensions);
@@ -360,6 +373,42 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 						  ENABLE_DDL_PROPAGATION);
 
 	return NodeDDLTaskList(ALL_WORKERS, commands);
+}
+
+
+/*
+ * EnsureSequentialModeForExtensionDDL makes sure that the current transaction is already in
+ * sequential mode, or can still safely be put in sequential mode, it errors if that is
+ * not possible. The error contains information for the user to retry the transaction with
+ * sequential mode set from the beginnig.
+ *
+ * As extensions are node scoped objects there exists only 1 instance of the extension used by
+ * potentially multiple shards. To make sure all shards in the transaction can interact
+ * with the extension the extension needs to be visible on all connections used by the transaction,
+ * meaning we can only use 1 connection per node.
+ */
+static void
+EnsureSequentialModeForExtensionDDL(void)
+{
+	if (ParallelQueryExecutedInTransaction())
+	{
+		ereport(ERROR, (errmsg("cannot create extension because there was a "
+							   "parallel operation on a distributed table in the "
+							   "transaction"),
+						errdetail("When creating a distributed extension, Citus needs to "
+								  "perform all operations over a single connection per "
+								  "node to ensure consistency."),
+						errhint("Try re-running the transaction with "
+								"\"SET LOCAL citus.multi_shard_modify_mode TO "
+								"\'sequential\';\"")));
+	}
+
+	ereport(DEBUG1, (errmsg("switching to sequential query execution mode"),
+					 errdetail(
+						 "A distributed extension is created. To make sure subsequent "
+						 "commands see the type correctly we need to make sure to "
+						 "use only one connection for all future commands")));
+	SetLocalMultiShardModifyModeToSequential();
 }
 
 

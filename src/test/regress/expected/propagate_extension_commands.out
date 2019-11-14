@@ -112,7 +112,7 @@ CREATE EXTENSION hstore;
 SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'hstore'$$);
   run_command_on_workers   
 ---------------------------
- (localhost,57637,t,17692)
+ (localhost,57637,t,17697)
 (1 row)
 
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
@@ -132,20 +132,25 @@ SELECT create_reference_table('ref_table_2');
 -- and add the other node
 SELECT master_add_node('localhost', 57638);
 NOTICE:  Replicating reference table "ref_table_2" to the node localhost:57638
-ERROR:  type "extension'test.hstore" does not exist
-CONTEXT:  while executing command on localhost:57638
+ master_add_node 
+-----------------
+              30
+(1 row)
+
 -- show that the extension is created on both existing and new nodes
 SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'hstore'$$);
   run_command_on_workers   
 ---------------------------
- (localhost,57637,t,17692)
-(1 row)
+ (localhost,57637,t,17697)
+ (localhost,57638,t,16868)
+(2 rows)
 
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
  run_command_on_workers  
 -------------------------
  (localhost,57637,t,1.6)
-(1 row)
+ (localhost,57638,t,1.6)
+(2 rows)
 
 -- and similarly check for the reference table
 select count(*) from pg_dist_partition where partmethod='n' and logicalrelid='ref_table_2'::regclass; 
@@ -177,7 +182,8 @@ SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname 
  run_command_on_workers 
 ------------------------
  (localhost,57637,t,0)
-(1 row)
+ (localhost,57638,t,0)
+(2 rows)
 
 -- try setting the schema outside of the rollback'ed transaction block and get error
 ALTER EXTENSION isn SET SCHEMA "public";
@@ -242,7 +248,8 @@ SELECT run_command_on_workers($$DROP SCHEMA "extension'test" CASCADE$$);
       run_command_on_workers       
 -----------------------------------
  (localhost,57637,t,"DROP SCHEMA")
-(1 row)
+ (localhost,57638,t,"DROP SCHEMA")
+(2 rows)
 
 -- lastly, check functionality of EnsureSequentialModeForExtensionDDL
 -- enable it and see that create command errors but continues its execution by changing citus.multi_shard_modify_mode TO 'off
@@ -261,7 +268,8 @@ SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extnam
  run_command_on_workers 
 ------------------------
  (localhost,57637,t,"")
-(1 row)
+ (localhost,57638,t,"")
+(2 rows)
 
 -- enable it and see that drop command errors but continues its execution by changing citus.multi_shard_modify_mode TO 'off
 SET citus.multi_shard_modify_mode TO 'parallel';
@@ -272,5 +280,6 @@ SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname 
  run_command_on_workers 
 ------------------------
  (localhost,57637,t,0)
-(1 row)
+ (localhost,57638,t,0)
+(2 rows)
 

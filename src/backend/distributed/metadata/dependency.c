@@ -435,6 +435,11 @@ SupportedDependencyByCitus(const ObjectAddress *address)
 			break;
 		}
 
+		case OCLASS_EXTENSION:
+		{
+			return true;
+		}
+
 		case OCLASS_CLASS:
 		{
 			/*

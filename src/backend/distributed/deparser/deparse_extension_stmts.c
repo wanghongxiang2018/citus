@@ -12,6 +12,7 @@
 
 #include "postgres.h"
 
+#include "catalog/namespace.h"
 #include "distributed/deparser.h"
 #include "lib/stringinfo.h"
 #include "nodes/pg_list.h"
@@ -19,9 +20,11 @@
 #include "utils/builtins.h"
 
 /* Local functions forward declarations for helper functions */
-static void AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *stmt);
+static void AppendCreateExtensionStmt(StringInfo buf, CreateExtensionStmt *stmt);
 static void AppendDropExtensionStmt(StringInfo buf, DropStmt *stmt);
 static void AppendExtensionNameList(StringInfo buf, List *objects);
+static void AppendAlterExtensionSchemaStmt(StringInfo buf,
+										   AlterObjectSchemaStmt *alterExtensionSchemaStmt);
 
 
 /*
@@ -44,7 +47,7 @@ DeparseCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt)
  * AppendCreateExtensionStmt appends a string representing the CreateExtensionStmt to a buffer
  */
 static void
-AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *createExtensionStmt)
+AppendCreateExtensionStmt(StringInfo buf, CreateExtensionStmt *createExtensionStmt)
 {
 	const char *extensionName = createExtensionStmt->extname;
 
@@ -61,7 +64,7 @@ AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *createExtensionSt
 
 	schemaName = quote_identifier(schemaName);
 
-	appendStringInfo(str, "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s",
+	appendStringInfo(buf, "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s",
 					 extensionName, schemaName);
 
 	/* "new_version" may not be specified in CreateExtensionStmt */
@@ -69,10 +72,10 @@ AppendCreateExtensionStmt(StringInfo str, CreateExtensionStmt *createExtensionSt
 	{
 		newVersion = quote_identifier(newVersion);
 
-		appendStringInfo(str, " VERSION %s", newVersion);
+		appendStringInfo(buf, " VERSION %s", newVersion);
 	}
 
-	appendStringInfoString(str, " CASCADE;");
+	appendStringInfoString(buf, " CASCADE;");
 }
 
 
@@ -131,4 +134,40 @@ AppendExtensionNameList(StringInfo str, List *objects)
 
 		appendStringInfoString(str, extensionName);
 	}
+}
+
+
+/*
+ * DeparseAlterExtensionSchemaStmt builds and returns a string representing the
+ * AlterObjectSchemaStmt (ALTER EXTENSION SET SCHEMA).
+ */
+const char *
+DeparseAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionSchemaStmt)
+{
+	StringInfoData str = { 0 };
+	initStringInfo(&str);
+
+	Assert(alterExtensionSchemaStmt->objectType == OBJECT_EXTENSION);
+
+	AppendAlterExtensionSchemaStmt(&str, alterExtensionSchemaStmt);
+
+	return str.data;
+}
+
+
+/*
+ * AppendAlterExtensionSchemaStmt appends a string representing the AlterObjectSchemaStmt
+ * for an extension to a buffer.
+ */
+static void
+AppendAlterExtensionSchemaStmt(StringInfo buf,
+							   AlterObjectSchemaStmt *alterExtensionSchemaStmt)
+{
+	const char *extensionName = NULL;
+
+	Assert(alterExtensionSchemaStmt->objectType == OBJECT_EXTENSION);
+
+	extensionName = strVal(alterExtensionSchemaStmt->object);
+	appendStringInfo(buf, "ALTER EXTENSION %s SET SCHEMA %s;", extensionName,
+					 quote_identifier(alterExtensionSchemaStmt->newschema));
 }

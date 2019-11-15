@@ -75,5 +75,7 @@ extern const char * DeparseCreateExtensionStmt(CreateExtensionStmt *stmt);
 extern const char * DeparseDropExtensionStmt(DropStmt *stmt);
 extern const char * GetCreateExtensionOption(List *defElemOptions, const
 											 char *optionName);
+extern const char * DeparseAlterExtensionSchemaStmt(
+	AlterObjectSchemaStmt *alterExtensionSchemaStmt);
 
 #endif /* CITUS_DEPARSER_H */

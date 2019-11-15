@@ -259,6 +259,11 @@ DeparseAlterObjectSchemaStmt(AlterObjectSchemaStmt *stmt)
 			return DeparseAlterFunctionSchemaStmt(stmt);
 		}
 
+		case OBJECT_EXTENSION:
+		{
+			return DeparseAlterExtensionSchemaStmt(stmt);
+		}
+
 		default:
 		{
 			ereport(ERROR, (errmsg("unsupported rename statement for deparsing")));

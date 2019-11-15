@@ -30,9 +30,9 @@
 static char * ExtractNewExtensionVersion(Node *parseTree);
 static void AddSchemaFieldIfMissing(CreateExtensionStmt *stmt);
 static char * GetCurrentSchema(void);
-static void EnsureSequentialModeForExtensionDDL(void);
 static List * FilterDistributedExtensions(List *extensionObjectList);
 static List * ExtensionNameListToObjectAddressList(List *extensionObjectList);
+static void EnsureSequentialModeForExtensionDDL(void);
 static bool ShouldPropagateExtensionCommand(Node *parseTree);
 static bool IsDropCitusStmt(Node *parseTree);
 static Node * RecreateExtensionStmt(Oid extensionOid);
@@ -160,7 +160,7 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 
 	/*
 	 * Here we append "schema" field to the "options" list (if not specified)
-	 * to satisfy the version consistency between worker nodes and the coordinator.
+	 * to satisfy the schema consistency between worker nodes and the coordinator.
 	 */
 	AddSchemaFieldIfMissing(createExtensionStmt);
 
@@ -180,7 +180,7 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 
 /*
  * Add DefElem item for "schema" (if not specified in statement) to "options"
- * list before deparsing the statement to satisfy the version consistency
+ * list before deparsing the statement to satisfy the schema consistency
  * between worker nodes and the coordinator.
  */
 static void
@@ -389,42 +389,6 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 
 
 /*
- * EnsureSequentialModeForExtensionDDL makes sure that the current transaction is already in
- * sequential mode, or can still safely be put in sequential mode, it errors if that is
- * not possible. The error contains information for the user to retry the transaction with
- * sequential mode set from the beginnig.
- *
- * As extensions are node scoped objects there exists only 1 instance of the extension used by
- * potentially multiple shards. To make sure all shards in the transaction can interact
- * with the extension the extension needs to be visible on all connections used by the transaction,
- * meaning we can only use 1 connection per node.
- */
-static void
-EnsureSequentialModeForExtensionDDL(void)
-{
-	if (ParallelQueryExecutedInTransaction())
-	{
-		ereport(ERROR, (errmsg("cannot create extension because there was a "
-							   "parallel operation on a distributed table in the "
-							   "transaction"),
-						errdetail("When creating a distributed extension, Citus needs to "
-								  "perform all operations over a single connection per "
-								  "node to ensure consistency."),
-						errhint("Try re-running the transaction with "
-								"\"SET LOCAL citus.multi_shard_modify_mode TO "
-								"\'sequential\';\"")));
-	}
-
-	ereport(DEBUG1, (errmsg("switching to sequential query execution mode"),
-					 errdetail(
-						 "A distributed extension is created. To make sure subsequent "
-						 "commands see the type correctly we need to make sure to "
-						 "use only one connection for all future commands")));
-	SetLocalMultiShardModifyModeToSequential();
-}
-
-
-/*
  * Given the "objects" list of a DropStmt, return the distributed objects in a
  * list having the format of a "DropStmt.objects" list (a list of string "Value"s).
  */
@@ -500,9 +464,108 @@ ExtensionNameListToObjectAddressList(List *extensionObjectList)
 
 
 /*
+ * PlanAlterExtensionSchemaStmt is invoked for alter extension set schema statements.
+ */
+List *
+PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
+							 char *queryString)
+{
+	const char *alterExtensionStmtSql = NULL;
+	const ObjectAddress *extensionAddress = NULL;
+	List *commands = NIL;
+
+	extensionAddress = GetObjectAddressFromParseTree((Node *) alterExtensionStmt, false);
+
+	if (!ShouldPropagateExtensionCommand((Node *) extensionAddress))
+	{
+		return NIL;
+	}
+
+	/* extension management can only be done via coordinator node */
+	EnsureCoordinator();
+
+	/*
+	 * Make sure that the current transaction is already in sequential mode,
+	 * or can still safely be put in sequential mode
+	 */
+	EnsureSequentialModeForExtensionDDL();
+
+	alterExtensionStmtSql = DeparseTreeNode((Node *) alterExtensionStmt);
+
+	/*
+	 * To prevent recursive propagation in mx architecture, we disable ddl
+	 * propagation before sending the command to workers.
+	 */
+	commands = list_make3(DISABLE_DDL_PROPAGATION,
+						  (void *) alterExtensionStmtSql,
+						  ENABLE_DDL_PROPAGATION);
+
+	return NodeDDLTaskList(ALL_WORKERS, commands);
+}
+
+
+/*
+ * ProcessAlterExtensionSchemaStmt is executed after the change has been applied locally, we
+ * can now use the new dependencies (schema) of the extension to ensure all its dependencies exist
+ * on the workers before we apply the commands remotely.
+ */
+void
+ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
+								char *queryString)
+{
+	const ObjectAddress *extensionAddress = NULL;
+
+	extensionAddress = GetObjectAddressFromParseTree((Node *) alterExtensionStmt, false);
+	if (!ShouldPropagateExtensionCommand((Node *) alterExtensionStmt))
+	{
+		return;
+	}
+
+	/* dependencies (schema) have changed let's ensure they exist */
+	EnsureDependenciesExistsOnAllNodes(extensionAddress);
+}
+
+
+/*
+ * EnsureSequentialModeForExtensionDDL makes sure that the current transaction is already in
+ * sequential mode, or can still safely be put in sequential mode, it errors if that is
+ * not possible. The error contains information for the user to retry the transaction with
+ * sequential mode set from the beginnig.
+ *
+ * As extensions are node scoped objects there exists only 1 instance of the extension used by
+ * potentially multiple shards. To make sure all shards in the transaction can interact
+ * with the extension the extension needs to be visible on all connections used by the transaction,
+ * meaning we can only use 1 connection per node.
+ */
+static void
+EnsureSequentialModeForExtensionDDL(void)
+{
+	if (ParallelQueryExecutedInTransaction())
+	{
+		ereport(ERROR, (errmsg("cannot create extension because there was a "
+							   "parallel operation on a distributed table in the "
+							   "transaction"),
+						errdetail("When creating a distributed extension, Citus needs to "
+								  "perform all operations over a single connection per "
+								  "node to ensure consistency."),
+						errhint("Try re-running the transaction with "
+								"\"SET LOCAL citus.multi_shard_modify_mode TO "
+								"\'sequential\';\"")));
+	}
+
+	ereport(DEBUG1, (errmsg("switching to sequential query execution mode"),
+					 errdetail(
+						 "A distributed extension is created. To make sure subsequent "
+						 "commands see the type correctly we need to make sure to "
+						 "use only one connection for all future commands")));
+	SetLocalMultiShardModifyModeToSequential();
+}
+
+
+/*
  * If we disabled object propagation, then we should not propagate anything.
- * Also, if extension command is run for/on citus, leave the rest to standard
- * utility hook.
+ * Also, if extension command is supported but run for/on citus, leave the
+ * rest to standard utility hook by returning false.
  */
 static bool
 ShouldPropagateExtensionCommand(Node *parseTree)
@@ -533,7 +596,7 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 bool
 IsCreateAlterCitusStmt(Node *parseTree)
 {
-	char *extensionName = NULL;
+	const char *extensionName = NULL;
 
 	if (IsA(parseTree, CreateExtensionStmt))
 	{
@@ -543,10 +606,14 @@ IsCreateAlterCitusStmt(Node *parseTree)
 	{
 		extensionName = ((AlterExtensionStmt *) parseTree)->extname;
 	}
+	else if (IsA(parseTree, AlterObjectSchemaStmt))
+	{
+		extensionName = strVal(((AlterObjectSchemaStmt *) parseTree)->object);
+	}
 	else
 	{
 		/*
-		 * If it is not a CreateExtensionStmt or AlterExtensionStmt,
+		 * If it is not a Create Extension or a Alter Extension stmt,
 		 * it does not matter if the it is about citus
 		 */
 		return false;
@@ -577,7 +644,7 @@ IsDropCitusStmt(Node *parseTree)
 	/* now that we have a DropStmt, check if citus is among the objects to dropped */
 	foreach(objectCell, ((DropStmt *) parseTree)->objects)
 	{
-		char *extensionName = strVal(lfirst(objectCell));
+		const char *extensionName = strVal(lfirst(objectCell));
 
 		if (strncmp(extensionName, "citus", NAMEDATALEN) == 0)
 		{
@@ -638,4 +705,36 @@ RecreateExtensionStmt(Oid extensionOid)
 	AddSchemaFieldIfMissing(stmt);
 
 	return (Node *) stmt;
+}
+
+
+/*
+ * AlterExtensionSchemaStmtObjectAddress returns the ObjectAddress of the extension that is
+ * the subject of the AlterObjectSchemaStmt. Errors if missing_ok is false.
+ */
+const ObjectAddress *
+AlterExtensionSchemaStmtObjectAddress(AlterObjectSchemaStmt *alterExtensionSchemaStmt,
+									  bool missing_ok)
+{
+	ObjectAddress *extensionAddress = NULL;
+	Oid extensionOid = InvalidOid;
+	const char *extensionName = NULL;
+
+	Assert(alterExtensionSchemaStmt->objectType == OBJECT_EXTENSION);
+
+	extensionName = strVal(alterExtensionSchemaStmt->object);
+
+	extensionOid = get_extension_oid(extensionName, missing_ok);
+
+	if (extensionOid == InvalidOid)
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),
+						errmsg("extension \"%s\" does not exist",
+							   extensionName)));
+	}
+
+	extensionAddress = palloc0(sizeof(ObjectAddress));
+	ObjectAddressSet(*extensionAddress, ExtensionRelationId, extensionOid);
+
+	return extensionAddress;
 }

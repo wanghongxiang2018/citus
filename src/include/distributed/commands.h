@@ -35,7 +35,13 @@ extern List * PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *que
 extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const
 									   char *queryString);
 extern List * PlanDropExtensionStmt(DropStmt *stmt, const char *queryString);
+extern List * PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt,
+										   const char *queryString);
+extern void ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt,
+											const char *queryString);
 extern List * CreateExtensionDDLCommand(const ObjectAddress *extensionAddress);
+extern const ObjectAddress * AlterExtensionSchemaStmtObjectAddress(
+	AlterObjectSchemaStmt *stmt, bool missing_ok);
 
 
 /* foreign_constraint.c - forward declarations */

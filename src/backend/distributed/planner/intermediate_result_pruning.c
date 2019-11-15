@@ -31,10 +31,12 @@
 
 #include "distributed/citus_custom_scan.h"
 #include "distributed/intermediate_result_pruning.h"
+#include "distributed/listutils.h"
 #include "distributed/log_utils.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/worker_manager.h"
 #include "utils/builtins.h"
+
 
 static List * AppendAllAccessedWorkerNodes(List *workerNodeList,
 										   DistributedPlan *distributedPlan,
@@ -83,24 +85,24 @@ FindSubPlansUsedInPlan(DistributedPlan *plan)
 		RangeTblEntry *rangeTableEntry = lfirst(rangeTableCell);
 		if (rangeTableEntry->rtekind == RTE_FUNCTION)
 		{
-			Const *resultIdConst =
+			char *resultId =
 				FindIntermediateResultIdIfExists(rangeTableEntry);
+			Value *resultIdValue = NULL;
 
-			if (resultIdConst == NULL)
+			if (resultId == NULL)
 			{
 				continue;
 			}
 
-			subPlanList = list_append_unique(subPlanList, resultIdConst);
+			/*
+			 * Use a Value to be able to use list_append_unique and store
+			 * the result ID in the DistributedPlan.
+			 */
+			resultIdValue = makeString(resultId);
+			subPlanList = list_append_unique(subPlanList, resultIdValue);
 
-			if (IsLoggableLevel(DEBUG4))
-			{
-				Datum resultIdDatum = resultIdConst->constvalue;
-				char *resultId = TextDatumGetCString(resultIdDatum);
-
-				elog(DEBUG4, "Result of SubPlan %s is used in Plan %lu",
-					 resultId, plan->planId);
-			}
+			elog(DEBUG4, "Result of SubPlan %s is used in Plan %lu",
+				 resultId, plan->planId);
 		}
 	}
 
@@ -125,17 +127,15 @@ void
 RecordSubplanExecutionsOnNodes(HTAB *intermediateResultsHash,
 							   DistributedPlan *distributedPlan)
 {
+	Value *usedSubPlanIdValue = NULL;
 	List *usedSubPlanNodeList = distributedPlan->usedSubPlanNodeList;
-	ListCell *usedSubPlanNodeCell = NULL;
 	List *subPlanList = distributedPlan->subPlanList;
 	ListCell *subPlanCell = NULL;
 	int workerNodeCount = GetWorkerNodeCount();
 
-	foreach(usedSubPlanNodeCell, usedSubPlanNodeList)
+	foreach_ptr(usedSubPlanIdValue, usedSubPlanNodeList)
 	{
-		Const *resultIdConst = lfirst(usedSubPlanNodeCell);
-		Datum resultIdDatum = resultIdConst->constvalue;
-		char *resultId = TextDatumGetCString(resultIdDatum);
+		char *resultId = strVal(usedSubPlanIdValue);
 
 		IntermediateResultsHashEntry *entry = SearchIntermediateResult(
 			intermediateResultsHash, resultId);

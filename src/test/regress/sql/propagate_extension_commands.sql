@@ -48,7 +48,7 @@ COMMIT;
 SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_extension WHERE extname = 'isn');
 
 -- show that the CREATE and ALTER EXTENSION commands are propagated as we committed the changes
-SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'isn'$$);
+SELECT run_command_on_workers($$SELECT count(extnamespace) FROM pg_extension WHERE extname = 'isn'$$);
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'isn'$$);
 
 -- SET client_min_messages TO WARNING before executing a DROP EXTENSION statement
@@ -73,7 +73,7 @@ select distinct logicalrelid from pg_dist_shard;
 CREATE EXTENSION hstore;
 
 -- show that the extension is created on existing worker
-SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'hstore'$$);
+SELECT run_command_on_workers($$SELECT count(extnamespace) FROM pg_extension WHERE extname = 'hstore'$$);
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
 
 -- now create the reference table
@@ -84,7 +84,7 @@ SELECT create_reference_table('ref_table_2');
 SELECT master_add_node('localhost', 57638);
 
 -- show that the extension is created on both existing and new nodes
-SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'hstore'$$);
+SELECT run_command_on_workers($$SELECT count(extnamespace) FROM pg_extension WHERE extname = 'hstore'$$);
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
 
 -- and similarly check for the reference table

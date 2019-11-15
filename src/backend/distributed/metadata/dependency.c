@@ -377,6 +377,11 @@ SupportedDependencyByCitus(const ObjectAddress *address)
 				return true;
 			}
 
+			case OCLASS_EXTENSION:
+			{
+				return true;
+			}
+
 			default:
 			{
 				return false;
@@ -433,11 +438,6 @@ SupportedDependencyByCitus(const ObjectAddress *address)
 			 * should be unreachable, break here is to make sure the function has a path
 			 * without return, instead of falling through to the next block */
 			break;
-		}
-
-		case OCLASS_EXTENSION:
-		{
-			return true;
 		}
 
 		case OCLASS_CLASS:
@@ -631,40 +631,16 @@ ApplyAddToDependencyList(ObjectAddressCollector *collector, Form_pg_depend pg_de
 {
 	ObjectAddress address = { 0 };
 	ObjectAddressSet(address, pg_depend->refclassid, pg_depend->refobjid);
-<<<<<<< HEAD
-<<<<<<< HEAD
 
 	/*
 	 * Objects owned by an extension are assumed to be created on the workers by creating
 	 * the extension in the cluster, we we don't want explicitly create them.
 	 */
-=======
-	
-	/*
-	 * Objects owned by an extension are assumed to be created on the workers by creating
-	 * the extension in the cluster
-	*/
->>>>>>> 9459ddf... Mark schema as distributed, change GetDependenciesForObject logic and write a basic deparser
-=======
-
-	/*
-	 * Objects owned by an extension are assumed to be created on the workers by creating
-	 * the extension in the cluster
-	 */
->>>>>>> eeff3d0... Fix drop/create error and add test output
 	if (IsObjectAddressOwnedByExtension(&address, NULL))
 	{
 		return;
 	}
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-=======
-	
->>>>>>> 9459ddf... Mark schema as distributed, change GetDependenciesForObject logic and write a basic deparser
-=======
-
->>>>>>> eeff3d0... Fix drop/create error and add test output
 	CollectObjectAddress(collector, &address);
 }
 

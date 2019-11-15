@@ -143,6 +143,16 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 	EnsureCoordinator();
 
 	/*
+	 * Make sure that no new nodes are added after this point until the end of the
+	 * transaction by taking a RowShareLock on pg_dist_node, which conflicts with the
+	 * ExclusiveLock taken by master_add_node.
+	 * This guarantees that all active nodes will have the extension, because they will
+	 * either get it now, or get it in master_add_node after this transaction finishes and
+	 * the pg_dist_object record becomes visible.
+	 */
+	LockRelationOid(DistNodeRelationId(), RowShareLock);
+
+	/*
 	 * Make sure that the current transaction is already in sequential mode,
 	 * or can still safely be put in sequential mode
 	 */

@@ -112,7 +112,7 @@ CREATE EXTENSION hstore;
 SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'hstore'$$);
   run_command_on_workers   
 ---------------------------
- (localhost,57637,t,17697)
+ (localhost,57637,t,17692)
 (1 row)
 
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
@@ -141,8 +141,8 @@ NOTICE:  Replicating reference table "ref_table_2" to the node localhost:57638
 SELECT run_command_on_workers($$SELECT extnamespace FROM pg_extension WHERE extname = 'hstore'$$);
   run_command_on_workers   
 ---------------------------
- (localhost,57637,t,17697)
- (localhost,57638,t,16868)
+ (localhost,57637,t,17692)
+ (localhost,57638,t,16867)
 (2 rows)
 
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);

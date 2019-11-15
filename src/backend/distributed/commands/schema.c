@@ -209,7 +209,7 @@ ProcessAlterObjectSchemaStmt(AlterObjectSchemaStmt *stmt, const char *queryStrin
 			ProcessAlterFunctionSchemaStmt(stmt, queryString);
 			return;
 		}
-		
+
 		case OBJECT_EXTENSION:
 		{
 			ProcessAlterExtensionSchemaStmt(stmt, queryString);

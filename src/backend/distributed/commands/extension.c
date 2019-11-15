@@ -35,6 +35,7 @@ static List * ExtensionNameListToObjectAddressList(List *extensionObjectList);
 static void EnsureSequentialModeForExtensionDDL(void);
 static bool ShouldPropagateExtensionCommand(Node *parseTree);
 static bool IsDropCitusStmt(Node *parseTree);
+static bool IsAlterExtensionSetSchemaCitus(Node *parseTree);
 static Node * RecreateExtensionStmt(Oid extensionOid);
 
 
@@ -471,12 +472,9 @@ PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 							 char *queryString)
 {
 	const char *alterExtensionStmtSql = NULL;
-	const ObjectAddress *extensionAddress = NULL;
 	List *commands = NIL;
 
-	extensionAddress = GetObjectAddressFromParseTree((Node *) alterExtensionStmt, false);
-
-	if (!ShouldPropagateExtensionCommand((Node *) extensionAddress))
+	if (!ShouldPropagateExtensionCommand((Node *) alterExtensionStmt))
 	{
 		return NIL;
 	}
@@ -516,6 +514,7 @@ ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 	const ObjectAddress *extensionAddress = NULL;
 
 	extensionAddress = GetObjectAddressFromParseTree((Node *) alterExtensionStmt, false);
+
 	if (!ShouldPropagateExtensionCommand((Node *) alterExtensionStmt))
 	{
 		return;
@@ -575,11 +574,15 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 		return false;
 	}
 
-	if (IsCreateAlterCitusStmt(parseTree))
+	if (IsCreateAlterExtensionUpdateCitusStmt(parseTree))
 	{
 		return false;
 	}
 	else if (IsDropCitusStmt(parseTree))
+	{
+		return false;
+	}
+	else if (IsAlterExtensionSetSchemaCitus(parseTree))
 	{
 		return false;
 	}
@@ -589,12 +592,12 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 
 
 /*
- * IsCreateAlterCitusStmt returns whether a given utility is a CREATE or ALTER
- * EXTENSION statement which references the citus extension. This function
+ * IsCreateAlterExtensionUpdateCitusStmt returns whether a given utility is a CREATE or
+ * ALTER EXTENSION UPDATE statement which references the citus extension. This function
  * returns false for all other inputs.
  */
 bool
-IsCreateAlterCitusStmt(Node *parseTree)
+IsCreateAlterExtensionUpdateCitusStmt(Node *parseTree)
 {
 	const char *extensionName = NULL;
 
@@ -605,10 +608,6 @@ IsCreateAlterCitusStmt(Node *parseTree)
 	else if (IsA(parseTree, AlterExtensionStmt))
 	{
 		extensionName = ((AlterExtensionStmt *) parseTree)->extname;
-	}
-	else if (IsA(parseTree, AlterObjectSchemaStmt))
-	{
-		extensionName = strVal(((AlterObjectSchemaStmt *) parseTree)->object);
 	}
 	else
 	{
@@ -657,7 +656,38 @@ IsDropCitusStmt(Node *parseTree)
 
 
 /*
- * CreateTypeDDLCommandsIdempotent returns a list of DDL statements (const char *) to be
+ * IsAlterExtensionSetSchemaCitus returns whether a given utility is an
+ * ALTER EXTENSION SET SCHEMA statement which references the citus extension.
+ * This function returns false for all other inputs.
+ */
+static bool
+IsAlterExtensionSetSchemaCitus(Node *parseTree)
+{
+	const char *extensionName = NULL;
+
+	if (IsA(parseTree, AlterObjectSchemaStmt))
+	{
+		AlterObjectSchemaStmt *alterExtensionSetSchemaStmt =
+			(AlterObjectSchemaStmt *) parseTree;
+
+		if (alterExtensionSetSchemaStmt->objectType == OBJECT_EXTENSION)
+		{
+			extensionName = strVal(((AlterObjectSchemaStmt *) parseTree)->object);
+
+			/*
+			 * Now that we have AlterObjectSchemaStmt for an extension,
+			 * check if it is run for/on citus
+			 */
+			return (strncmp(extensionName, "citus", NAMEDATALEN) == 0);
+		}
+	}
+
+	return false;
+}
+
+
+/*
+ * CreateExtensionDDLCommand returns a list of DDL statements (const char *) to be
  * executed on a node to recreate the extension addressed by the extensionAddress.
  */
 List *

@@ -143,7 +143,7 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 		return;
 	}
 
-	checkCreateAlterExtensionVersion = IsCreateAlterCitusStmt(parsetree);
+	checkCreateAlterExtensionVersion = IsCreateAlterExtensionUpdateCitusStmt(parsetree);
 	if (EnableVersionChecks && checkCreateAlterExtensionVersion)
 	{
 		ErrorIfUnstableCreateOrAlterExtensionStmt(parsetree);

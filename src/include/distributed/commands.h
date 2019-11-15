@@ -29,7 +29,7 @@ extern bool CallDistributedProcedureRemotely(CallStmt *callStmt, DestReceiver *d
 
 
 /* extension.c - forward declarations */
-extern bool IsCreateAlterCitusStmt(Node *parsetree);
+extern bool IsCreateAlterExtensionUpdateCitusStmt(Node *parsetree);
 extern void ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parsetree);
 extern List * PlanCreateExtensionStmt(CreateExtensionStmt *stmt, const char *queryString);
 extern void ProcessCreateExtensionStmt(CreateExtensionStmt *stmt, const

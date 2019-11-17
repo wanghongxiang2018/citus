@@ -21,6 +21,7 @@
 #include "distributed/metadata/distobject.h"
 #include "distributed/multi_executor.h"
 #include "distributed/relation_access_tracking.h"
+#include "distributed/transaction_management.h"
 #include "nodes/makefuncs.h"
 #include "utils/lsyscache.h"
 #include "utils/builtins.h"
@@ -572,6 +573,15 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 {
 	/* if we disabled object propagation, then we should not propagate anything. */
 	if (!EnableDependencyCreation)
+	{
+		return false;
+	}
+
+	/*
+	 * If the extension command is a part of a bigger multi-statement transaction,
+	 * do not propagate it
+	 */
+	if (IsMultiStatementTransaction())
 	{
 		return false;
 	}

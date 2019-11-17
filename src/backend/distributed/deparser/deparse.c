@@ -102,6 +102,11 @@ DeparseTreeNode(Node *stmt)
 			return DeparseCreateExtensionStmt(castNode(CreateExtensionStmt, stmt));
 		}
 
+		case T_AlterExtensionStmt:
+		{
+			return DeparseAlterExtensionStmt(castNode(AlterExtensionStmt, stmt));
+		}
+
 		default:
 		{
 			ereport(ERROR, (errmsg("unsupported statement for deparsing")));

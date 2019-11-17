@@ -39,9 +39,14 @@ extern List * PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtension
 										   const char *queryString);
 extern void ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt,
 											const char *queryString);
+extern List * PlanAlterExtensionUpdateStmt(AlterExtensionStmt *alterExtensionStmt, const
+										   char *queryString);
 extern List * CreateExtensionDDLCommand(const ObjectAddress *extensionAddress);
 extern const ObjectAddress * AlterExtensionSchemaStmtObjectAddress(
 	AlterObjectSchemaStmt *stmt, bool missing_ok);
+extern const ObjectAddress * AlterExtensionUpdateStmtObjectAddress(
+	AlterExtensionStmt *alterExtensionStmt,
+	bool missing_ok);
 
 
 /* foreign_constraint.c - forward declarations */

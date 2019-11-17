@@ -25,6 +25,43 @@ static void AppendDropExtensionStmt(StringInfo buf, DropStmt *stmt);
 static void AppendExtensionNameList(StringInfo buf, List *objects);
 static void AppendAlterExtensionSchemaStmt(StringInfo buf,
 										   AlterObjectSchemaStmt *alterExtensionSchemaStmt);
+static void AppendAlterExtensionStmt(StringInfo buf,
+									 AlterExtensionStmt *alterExtensionStmt);
+
+
+/*
+ * GetCreateExtensionOption fetches the string value of DefElem node with
+ * "defname" from "options" list
+ */
+const char *
+GetCreateAlterExtensionOption(List *extensionOptions, const char *defname)
+{
+	const char *targetStr = NULL;
+
+	ListCell *defElemCell = NULL;
+
+	foreach(defElemCell, extensionOptions)
+	{
+		DefElem *defElement = (DefElem *) lfirst(defElemCell);
+
+		if (IsA(defElement, DefElem) && strncmp(defElement->defname, defname,
+												NAMEDATALEN) == 0)
+		{
+			targetStr = strVal(defElement->arg);
+			break;
+		}
+	}
+
+	/* return target string safely */
+	if (targetStr)
+	{
+		return pstrdup(targetStr);
+	}
+	else
+	{
+		return NULL;
+	}
+}
 
 
 /*
@@ -59,8 +96,8 @@ AppendCreateExtensionStmt(StringInfo buf, CreateExtensionStmt *createExtensionSt
 	 * of statement's content before propagating it to worker nodes.
 	 * We also do not care old_version for now.
 	 */
-	const char *newVersion = GetCreateExtensionOption(optionsList, "new_version");
-	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
+	const char *newVersion = GetCreateAlterExtensionOption(optionsList, "new_version");
+	const char *schemaName = GetCreateAlterExtensionOption(optionsList, "schema");
 
 	schemaName = quote_identifier(schemaName);
 
@@ -76,6 +113,48 @@ AppendCreateExtensionStmt(StringInfo buf, CreateExtensionStmt *createExtensionSt
 	}
 
 	appendStringInfoString(buf, " CASCADE;");
+}
+
+
+/*
+ * DeparseAlterExtensionStmt builds and returns a string representing the
+ * AlterExtensionStmt to be sent to worker nodes.
+ */
+const char *
+DeparseAlterExtensionStmt(AlterExtensionStmt *alterExtensionStmt)
+{
+	StringInfoData sql = { 0 };
+	initStringInfo(&sql);
+
+	AppendAlterExtensionStmt(&sql, alterExtensionStmt);
+
+	return sql.data;
+}
+
+
+/*
+ * AppendAlterExtensionStmt appends a string representing the AlterExtensionStmt to a buffer
+ */
+static void
+AppendAlterExtensionStmt(StringInfo buf, AlterExtensionStmt *alterExtensionStmt)
+{
+	const char *extensionName = alterExtensionStmt->extname;
+
+	List *optionsList = alterExtensionStmt->options;
+
+	const char *newVersion = GetCreateAlterExtensionOption(optionsList, "new_version");
+
+	appendStringInfo(buf, "ALTER EXTENSION %s UPDATE ", extensionName);
+
+	/* "new_version" may not be specified in AlterExtensionStmt */
+	if (newVersion)
+	{
+		newVersion = quote_identifier(newVersion);
+
+		appendStringInfo(buf, " TO %s", newVersion);
+	}
+
+	appendStringInfoString(buf, ";");
 }
 
 

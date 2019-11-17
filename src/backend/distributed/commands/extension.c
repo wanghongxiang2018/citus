@@ -190,7 +190,7 @@ AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
 {
 	List *optionsList = createExtensionStmt->options;
 
-	const char *schemaName = GetCreateExtensionOption(optionsList, "schema");
+	const char *schemaName = GetCreateAlterExtensionOption(optionsList, "schema");
 
 	if (!schemaName)
 	{
@@ -205,41 +205,6 @@ AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
 
 		createExtensionStmt->options = lappend(createExtensionStmt->options,
 											   newDefElement);
-	}
-}
-
-
-/*
- * GetCreateExtensionOption fetches the string value of DefElem node with
- * "defname" from "options" list
- */
-const char *
-GetCreateExtensionOption(List *extensionOptions, const char *defname)
-{
-	const char *targetStr = NULL;
-
-	ListCell *defElemCell = NULL;
-
-	foreach(defElemCell, extensionOptions)
-	{
-		DefElem *defElement = (DefElem *) lfirst(defElemCell);
-
-		if (IsA(defElement, DefElem) && strncmp(defElement->defname, defname,
-												NAMEDATALEN) == 0)
-		{
-			targetStr = strVal(defElement->arg);
-			break;
-		}
-	}
-
-	/* return target string safely */
-	if (targetStr)
-	{
-		return pstrdup(targetStr);
-	}
-	else
-	{
-		return NULL;
 	}
 }
 
@@ -528,10 +493,51 @@ ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 
 
 /*
- * EnsureSequentialModeForExtensionDDL makes sure that the current transaction
- * is already in sequential mode, or can still safely be put in sequential mode,
- * it errors if that is not possible. The error contains information for the
- * user to retry the transaction with sequential mode set from the beginnig.
+ * PlanAlterExtensionUpdateStmt is invoked for alter extension update statements.
+ */
+List *
+PlanAlterExtensionUpdateStmt(AlterExtensionStmt *alterExtensionStmt, const
+							 char *queryString)
+{
+	const char *alterExtensionStmtSql = NULL;
+	const ObjectAddress *extensionAddress = NULL;
+	List *commands = NIL;
+
+	extensionAddress = GetObjectAddressFromParseTree((Node *) alterExtensionStmt, false);
+
+	if (!ShouldPropagateExtensionCommand((Node *) extensionAddress))
+	{
+		return NIL;
+	}
+
+	/* extension management can only be done via coordinator node */
+	EnsureCoordinator();
+
+	/*
+	 * Make sure that the current transaction is already in sequential mode,
+	 * or can still safely be put in sequential mode
+	 */
+	EnsureSequentialModeForExtensionDDL();
+
+	alterExtensionStmtSql = DeparseTreeNode((Node *) alterExtensionStmt);
+
+	/*
+	 * To prevent recursive propagation in mx architecture, we disable ddl
+	 * propagation before sending the command to workers.
+	 */
+	commands = list_make3(DISABLE_DDL_PROPAGATION,
+						  (void *) alterExtensionStmtSql,
+						  ENABLE_DDL_PROPAGATION);
+
+	return NodeDDLTaskList(ALL_WORKERS, commands);
+}
+
+
+/*
+ * EnsureSequentialModeForExtensionDDL makes sure that the current transaction is already in
+ * sequential mode, or can still safely be put in sequential mode, it errors if that is
+ * not possible. The error contains information for the user to retry the transaction with
+ * sequential mode set from the beginnig.
  *
  * As extensions are node scoped objects there exists only 1 instance of the
  * extension used by potentially multiple shards. To make sure all shards in
@@ -789,6 +795,36 @@ AlterExtensionSchemaStmtObjectAddress(AlterObjectSchemaStmt *alterExtensionSchem
 	Assert(alterExtensionSchemaStmt->objectType == OBJECT_EXTENSION);
 
 	extensionName = strVal(alterExtensionSchemaStmt->object);
+
+	extensionOid = get_extension_oid(extensionName, missing_ok);
+
+	if (extensionOid == InvalidOid)
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),
+						errmsg("extension \"%s\" does not exist",
+							   extensionName)));
+	}
+
+	extensionAddress = palloc0(sizeof(ObjectAddress));
+	ObjectAddressSet(*extensionAddress, ExtensionRelationId, extensionOid);
+
+	return extensionAddress;
+}
+
+
+/*
+ * AlterExtensionUpdateStmtObjectAddress returns the ObjectAddress of the extension that is
+ * the subject of the AlterExtensionStmt. Errors if missing_ok is false.
+ */
+const ObjectAddress *
+AlterExtensionUpdateStmtObjectAddress(AlterExtensionStmt *alterExtensionStmt,
+									  bool missing_ok)
+{
+	ObjectAddress *extensionAddress = NULL;
+	Oid extensionOid = InvalidOid;
+	const char *extensionName = NULL;
+
+	extensionName = alterExtensionStmt->extname;
 
 	extensionOid = get_extension_oid(extensionName, missing_ok);
 

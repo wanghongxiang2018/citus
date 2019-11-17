@@ -180,9 +180,9 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 
 
 /*
- * Add DefElem item for "schema" (if not specified in statement) to "options"
- * list before deparsing the statement to satisfy the schema consistency
- * between worker nodes and the coordinator.
+ * AddSchemaFieldIfMissing adds DefElem item for "schema" (if not specified
+ * in statement) to "options" list before deparsing the statement to satisfy
+ * the schema consistency between worker nodes and the coordinator.
  */
 static void
 AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
@@ -209,8 +209,8 @@ AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
 
 
 /*
- * Utility function to fetch the string value of DefElem node with "defname"
- * from "options" list
+ * GetCreateExtensionOption fetches the string value of DefElem node with
+ * "defname" from "options" list
  */
 const char *
 GetCreateExtensionOption(List *extensionOptions, const char *defname)
@@ -244,9 +244,9 @@ GetCreateExtensionOption(List *extensionOptions, const char *defname)
 
 
 /*
- * Get the name of the schema that the postgres would pick primarily
- * for a CREATE EXTENSION statement that does not include "WITH SCHEMA"
- * clause.
+ * GetCurrentSchema returns the name of the schema that the postgres would
+ * pick primarily for a CREATE EXTENSION statement that does not include
+ * "WITH SCHEMA" clause.
  * Cannot return NULL, errors out as Postgres would do if NULL.
  */
 static char *
@@ -390,8 +390,9 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 
 
 /*
- * Given the "objects" list of a DropStmt, return the distributed objects in a
- * list having the format of a "DropStmt.objects" list (a list of string "Value"s).
+ * FilterDistributedExtensions returns the distributed objects in an "objects"
+ * list of a DropStmt, a list having the format of a "DropStmt.objects" list.
+ * That is, in turn, a list of string "Value"s.
  */
 static List *
 FilterDistributedExtensions(List *extensionObjectList)
@@ -429,8 +430,8 @@ FilterDistributedExtensions(List *extensionObjectList)
 
 
 /*
- * Given the "objects" list of a DropStmt, return the object addresses in
- * an ObjectAddress list.
+ * ExtensionNameListToObjectAddressList returns the object addresses in
+ * an ObjectAddress list for an "objects" list of a DropStmt.
  * Callers of this function should ensure that all the objects in the list
  * are valid and distributed.
  */
@@ -503,9 +504,9 @@ PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 
 
 /*
- * ProcessAlterExtensionSchemaStmt is executed after the change has been applied locally, we
- * can now use the new dependencies (schema) of the extension to ensure all its dependencies exist
- * on the workers before we apply the commands remotely.
+ * ProcessAlterExtensionSchemaStmt is executed after the change has been applied
+ * locally, we can now use the new dependencies (schema) of the extension to ensure
+ * all its dependencies exist on the workers before we apply the commands remotely.
  */
 void
 ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
@@ -526,15 +527,16 @@ ProcessAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 
 
 /*
- * EnsureSequentialModeForExtensionDDL makes sure that the current transaction is already in
- * sequential mode, or can still safely be put in sequential mode, it errors if that is
- * not possible. The error contains information for the user to retry the transaction with
- * sequential mode set from the beginnig.
+ * EnsureSequentialModeForExtensionDDL makes sure that the current transaction
+ * is already in sequential mode, or can still safely be put in sequential mode,
+ * it errors if that is not possible. The error contains information for the
+ * user to retry the transaction with sequential mode set from the beginnig.
  *
- * As extensions are node scoped objects there exists only 1 instance of the extension used by
- * potentially multiple shards. To make sure all shards in the transaction can interact
- * with the extension the extension needs to be visible on all connections used by the transaction,
- * meaning we can only use 1 connection per node.
+ * As extensions are node scoped objects there exists only 1 instance of the
+ * extension used by potentially multiple shards. To make sure all shards in
+ * the transaction can interact with the extension the extension needs to be
+ * visible on all connections used by the transaction, meaning we can only use
+ *  1 connection per node.
  */
 static void
 EnsureSequentialModeForExtensionDDL(void)
@@ -562,18 +564,22 @@ EnsureSequentialModeForExtensionDDL(void)
 
 
 /*
- * If we disabled object propagation, then we should not propagate anything.
- * Also, if extension command is supported but run for/on citus, leave the
- * rest to standard utility hook by returning false.
+ * ShouldPropagateExtensionCommand determines whether to propagate an extension
+ * command to the worker nodes.
  */
 static bool
 ShouldPropagateExtensionCommand(Node *parseTree)
 {
+	/* if we disabled object propagation, then we should not propagate anything. */
 	if (!EnableDependencyCreation)
 	{
 		return false;
 	}
 
+	/*
+	 * If extension command is run for/on citus, leave therest to standard utility hook
+	 * by returning false.
+	 */
 	if (IsCreateAlterExtensionUpdateCitusStmt(parseTree))
 	{
 		return false;
@@ -592,9 +598,9 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 
 
 /*
- * IsCreateAlterExtensionUpdateCitusStmt returns whether a given utility is a CREATE or
- * ALTER EXTENSION UPDATE statement which references the citus extension. This function
- * returns false for all other inputs.
+ * IsCreateAlterExtensionUpdateCitusStmt returns whether a given utility is a
+ * CREATE or ALTER EXTENSION UPDATE statement which references the citus extension.
+ * This function returns false for all other inputs.
  */
 bool
 IsCreateAlterExtensionUpdateCitusStmt(Node *parseTree)
@@ -627,7 +633,8 @@ IsCreateAlterExtensionUpdateCitusStmt(Node *parseTree)
 
 
 /*
- * Iterate objects to be dropped in a drop statement and try to find citus there
+ * IsDropCitusStmt iterates the objects to be dropped in a drop statement
+ * and try to find citus there.
  */
 static bool
 IsDropCitusStmt(Node *parseTree)

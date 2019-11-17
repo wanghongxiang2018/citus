@@ -39,20 +39,34 @@ SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_type
      1
 (1 row)
 
--- now try to run CREATE EXTENSION within a transction block and observe it fails
+-- now try to run CREATE EXTENSION within a transction block, all should work fine
 BEGIN;
-	CREATE EXTENSION isn WITH SCHEMA public VERSION '1.1';
+	CREATE EXTENSION isn WITH SCHEMA public;
   -- now, try create a reference table relying on the data types
   -- this should not succeed as we do not distribute extension commands within transaction blocks
-	CREATE TABLE ref_table (a public.issn);
-	SELECT create_reference_table('ref_table');
- create_reference_table 
-------------------------
+	CREATE TABLE dist_table (key int, value public.issn);
+	SELECT create_distributed_table('dist_table', 'key');
+ create_distributed_table 
+--------------------------
  
 (1 row)
 
+	
+	-- we can even run queries (sequentially) over the distributed table
+	SELECT * FROM dist_table;
+ key | value 
+-----+-------
+(0 rows)
+
+	INSERT INTO dist_table VALUES (1, public.issn('1436-4522'));
+	INSERT INTO dist_table SELECT * FROM dist_table RETURNING *;
+ key |   value   
+-----+-----------
+   1 | 1436-4522
+(1 row)
+
 COMMIT;
--- make sure that the extension could not be distributed as we run create extension in a transaction block
+-- make sure that the extension is distributed even if we run create extension in a transaction block
 SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_extension WHERE extname = 'isn');
  count 
 -------
@@ -66,15 +80,30 @@ SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname 
  (localhost,57638,t,1)
 (2 rows)
 
--- let's do the stuff target in above transaction block as they are rollback'ed because of the failure
-CREATE EXTENSION isn WITH SCHEMA public VERSION '1.1';
-ERROR:  extension "isn" already exists
 CREATE TABLE ref_table (a public.issn);
-ERROR:  relation "ref_table" already exists
 -- now, create a reference table relying on the data types
 SELECT create_reference_table('ref_table');
-ERROR:  table "ref_table" is already distributed
+ create_reference_table 
+------------------------
+ 
+(1 row)
+
+-- now,  drop the extension, recreate it with an older version and update it to latest version
+SET client_min_messages TO WARNING;
+DROP EXTENSION isn CASCADE;
+CREATE EXTENSION isn WITH VERSION "1.1";
+RESET client_min_messages;
 -- before updating the version, ensure the current version
+SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'isn'$$);
+ run_command_on_workers  
+-------------------------
+ (localhost,57637,t,1.1)
+ (localhost,57638,t,1.1)
+(2 rows)
+
+-- now, update to a newer version
+ALTER EXTENSION isn UPDATE TO '1.2';
+-- show that ALTER EXTENSION is propagated 
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'isn'$$);
  run_command_on_workers  
 -------------------------
@@ -82,14 +111,12 @@ SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extnam
  (localhost,57638,t,1.2)
 (2 rows)
 
--- now, update to a newer version
-ALTER EXTENSION isn UPDATE TO '1.2';
 -- before changing the schema, ensure the current schmea
 SELECT run_command_on_workers($$SELECT nspname from pg_namespace where oid=(SELECT extnamespace FROM pg_extension WHERE extname = 'isn')$$);
-   run_command_on_workers   
-----------------------------
- (localhost,57637,t,public)
- (localhost,57638,t,public)
+       run_command_on_workers       
+------------------------------------
+ (localhost,57637,t,extension'test)
+ (localhost,57638,t,extension'test)
 (2 rows)
 
 -- now change the schema
@@ -103,19 +130,12 @@ SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_exte
      1
 (1 row)
 
--- show that the CREATE and ALTER EXTENSION commands are propagated
+-- show that the ALTER EXTENSION command is propagated
 SELECT run_command_on_workers($$SELECT nspname from pg_namespace where oid=(SELECT extnamespace FROM pg_extension WHERE extname = 'isn')$$);
    run_command_on_workers   
 ----------------------------
  (localhost,57637,t,public)
  (localhost,57638,t,public)
-(2 rows)
-
-SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'isn'$$);
- run_command_on_workers  
--------------------------
- (localhost,57637,t,1.2)
- (localhost,57638,t,1.2)
 (2 rows)
 
 -- SET client_min_messages TO WARNING before executing a DROP EXTENSION statement
@@ -135,20 +155,15 @@ drop cascades to column hstore_2 of composite type "extension'test".two_hstores
 drop cascades to column hstore_1 of composite type "extension'test".two_hstores
 -- but as we have only 2 ports in postgresql tests, let's remove one of the nodes first
 -- before remove, first remove the existing relations (due to the other tests)
-\d
-                 List of relations
- Schema |          Name          | Type  |  Owner   
---------+------------------------+-------+----------
- public | test_reference_table   | table | postgres
- public | version_mismatch_table | table | postgres
-(2 rows)
+SET client_min_messages TO WARNING;
+DROP SCHEMA "extension'test" CASCADE;
+RESET client_min_messages;
+SELECT master_remove_node('localhost', :worker_2_port);
+ master_remove_node 
+--------------------
+ 
+(1 row)
 
-DROP TABLE ref_table;
-ERROR:  table "ref_table" does not exist
-DROP TABLE test_table;
-ERROR:  table "test_table" does not exist
-SELECT master_remove_node('localhost', 57638);
-ERROR:  you cannot remove the primary node of a node group which has shard placements
 -- then create the extension
 CREATE EXTENSION hstore;
 -- show that the extension is created on existing worker
@@ -156,15 +171,13 @@ SELECT run_command_on_workers($$SELECT count(extnamespace) FROM pg_extension WHE
  run_command_on_workers 
 ------------------------
  (localhost,57637,t,1)
- (localhost,57638,t,1)
-(2 rows)
+(1 row)
 
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
  run_command_on_workers  
 -------------------------
  (localhost,57637,t,1.6)
- (localhost,57638,t,1.6)
-(2 rows)
+(1 row)
 
 -- now create the reference table
 CREATE TABLE ref_table_2 (x hstore);
@@ -176,9 +189,10 @@ SELECT create_reference_table('ref_table_2');
 
 -- and add the other node
 SELECT master_add_node('localhost', 57638);
+NOTICE:  Replicating reference table "ref_table_2" to the node localhost:57638
  master_add_node 
 -----------------
-              18
+              30
 (1 row)
 
 -- show that the extension is created on both existing and new node
@@ -209,6 +223,7 @@ SELECT count(*) FROM pg_dist_shard WHERE logicalrelid='ref_table_2'::regclass;
      1
 (1 row)
 
+DROP TABLE ref_table_2;
 -- now test create extension in another transaction block but rollback this time
 BEGIN;
 	CREATE EXTENSION isn WITH VERSION '1.1' SCHEMA public;
@@ -229,10 +244,18 @@ SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname 
  (localhost,57638,t,0)
 (2 rows)
 
--- TODO: give a notice for the following commands saying that it is not
+-- give a notice for the following commands saying that it is not
 -- propagated to the workers. the user should run it manually on the workers 
--- ALTER EXTENSION name ADD member_object
--- ALTER EXTENSION name DROP member_object
+CREATE TABLE t1 (A int);
+CREATE VIEW v1 AS select * from t1;
+ALTER EXTENSION hstore ADD VIEW v1;
+NOTICE:  Citus does not propagate adding/dropping member objects
+HINT:  You can add/drop the member objects on the workers as well.
+ALTER EXTENSION hstore DROP VIEW v1;
+NOTICE:  Citus does not propagate adding/dropping member objects
+HINT:  You can add/drop the member objects on the workers as well.
+DROP VIEW v1;
+DROP TABLE t1;
 -- drop multiple extensions at the same time
 CREATE EXTENSION isn WITH VERSION '1.1' SCHEMA public;
 -- let's create another extension locally
@@ -241,63 +264,67 @@ CREATE EXTENSION pg_buffercache;
 set citus.enable_ddl_propagation to 'on';
 -- SET client_min_messages TO WARNING before executing a DROP EXTENSION statement
 SET client_min_messages TO WARNING;
--- restrict should fail but cascade should work
-DROP EXTENSION pg_buffercache, isn RESTRICT; 
--- but this should work
 DROP EXTENSION pg_buffercache, isn CASCADE;
-ERROR:  extension "pg_buffercache" does not exist
+SELECT count(*) FROM pg_extension WHERE extname IN ('pg_buffercache', 'isn');
+ count 
+-------
+     0
+(1 row)
+
 -- restore client_min_messages after DROP EXTENSION
 RESET client_min_messages;
 -- SET client_min_messages TO WARNING before executing a DROP EXTENSION statement
 SET client_min_messages TO WARNING;
--- drop extension in a transaction block, should not be distributed to workers
-BEGIN;
+-- drop extension in a transaction block, should just work
+--BEGIN;
 	DROP EXTENSION hstore CASCADE;
-COMMIT;
--- finally, drop the extension
-DROP EXTENSION hstore;
-ERROR:  extension "hstore" does not exist
+--COMMIT;
+SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_extension WHERE extname = 'hstore');
+ count 
+-------
+     0
+(1 row)
+
+SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname = 'hstore'$$);
+ run_command_on_workers 
+------------------------
+ (localhost,57637,t,0)
+ (localhost,57638,t,0)
+(2 rows)
+
 -- restore client_min_messages after DROP EXTENSION
 RESET client_min_messages;
 -- make sure that the extension is not avaliable anymore as a distributed object
+-- TODO:: There is a bug now
 SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_extension WHERE extname IN ('hstore', 'isn'));
  count 
 -------
      0
 (1 row)
 
--- but the schema should still be distributed
--- TODO: escape this SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_type WHERE typname = 'extension''test');
--- version
--- WITH schema
--- CASACADE
-CREATE EXTENSION hstore WITH SCHEMA "extension'test";
-DROP SCHEMA "extension'test" CASCADE;
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to table "extension'test".test_table
-drop cascades to type "extension'test".two_hstores
-drop cascades to table "extension'test".ref_table
-drop cascades to extension hstore
--- make sure that dropping the schema removes the distributed object 
-SELECT count(*) FROM citus.pg_dist_object WHERE objid = (SELECT oid FROM pg_extension WHERE extname IN ('hstore'));
- count 
--------
-     0
+CREATE SCHEMA "extension'test";
+SET search_path TO "extension'test";
+-- check restriction for sequential execution
+-- enable it and see that create command errors but continues its execution by changing citus.multi_shard_modify_mode TO 'off
+BEGIN;
+	CREATE TABLE some_random_table (a int);
+	SELECT create_distributed_table('some_random_table', 'a');
+ create_distributed_table 
+--------------------------
+ 
 (1 row)
 
--- as we do not propagate DROP SCHEMA to workers, let's drop them manually
-SELECT run_command_on_workers($$DROP SCHEMA "extension'test" CASCADE$$);
-      run_command_on_workers       
------------------------------------
- (localhost,57637,t,"DROP SCHEMA")
- (localhost,57638,t,"DROP SCHEMA")
-(2 rows)
+	CREATE EXTENSION hstore;
+	CREATE TABLE some_random_table_2 (a int, b hstore);
+	SELECT create_distributed_table('some_random_table_2', 'a');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
 
--- lastly, check functionality of EnsureSequentialModeForExtensionDDL
--- enable it and see that create command errors but continues its execution by changing citus.multi_shard_modify_mode TO 'off
-SET citus.multi_shard_modify_mode TO 'parallel';
-CREATE EXTENSION hstore;
--- show that the CREATE EXTENSION command is propagated
+ROLLBACK;
+-- show that the CREATE EXTENSION command propagated even if the transaction
+-- block is rollbacked, that's a shortcoming of dependency creation logic
 SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extname = 'hstore'$$);
  run_command_on_workers  
 -------------------------
@@ -305,20 +332,68 @@ SELECT run_command_on_workers($$SELECT extversion FROM pg_extension WHERE extnam
  (localhost,57638,t,1.6)
 (2 rows)
 
--- enable it and see that drop command errors but continues its execution by changing citus.multi_shard_modify_mode TO 'off
-SET citus.multi_shard_modify_mode TO 'parallel';
-DROP EXTENSION hstore;
-ERROR:  cannot drop extension hstore because other objects depend on it
-DETAIL:  column x of table ref_table_2_102047 depends on type hstore
-HINT:  Use DROP ... CASCADE to drop the dependent objects too.
-CONTEXT:  while executing command on localhost:57638
--- show that the DROP EXTENSION command is propagated
-SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname = 'hstore'$$);
+-- drop the schema and all the objects
+SET client_min_messages TO WARNING;
+DROP SCHEMA "extension'test" CASCADE;
+-- recreate for the next tests
+CREATE SCHEMA "extension'test";
+-- use  a schema name with escape character
+SET search_path TO "extension'test";
+RESET client_min_messages;
+-- remove the node, we'll add back again
+SELECT master_remove_node('localhost', :worker_2_port);
+ master_remove_node 
+--------------------
+ 
+(1 row)
+
+-- now, create a type that depends on another type, which
+-- finally depends on an extension
+BEGIN;
+	SET citus.shard_replication_factor TO 1;
+	CREATE EXTENSION hstore;
+	CREATE EXTENSION isn;
+	CREATE TYPE test_type AS (a int, b hstore); 
+	CREATE TYPE test_type_2 AS (a int, b test_type); 
+	CREATE TABLE t2 (a int, b test_type_2, c issn);
+	SELECT create_distributed_table('t2', 'a');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+	
+	CREATE TYPE test_type_3 AS (a int, b test_type, c issn); 
+	CREATE TABLE t3 (a int, b test_type_3);
+	SELECT create_reference_table('t3');
+ create_reference_table 
+------------------------
+ 
+(1 row)
+
+COMMIT;
+-- add the node back
+SELECT master_add_node('localhost', :worker_2_port);
+NOTICE:  Replicating reference table "t3" to the node localhost:57638
+ master_add_node 
+-----------------
+              31
+(1 row)
+
+-- make sure that both extensions are created on both nodes
+SELECT count(*) FROM citus.pg_dist_object WHERE objid IN (SELECT oid FROM pg_extension WHERE extname IN ('hstore', 'isn'));
+ count 
+-------
+     2
+(1 row)
+
+SELECT run_command_on_workers($$SELECT count(*) FROM pg_extension WHERE extname IN ('hstore', 'isn')$$);
  run_command_on_workers 
 ------------------------
- (localhost,57637,t,1)
- (localhost,57638,t,1)
+ (localhost,57637,t,2)
+ (localhost,57638,t,2)
 (2 rows)
 
---finally, drop ref_table_2 to avoid affecting the other regression tests
-DROP TABLE ref_table_2;
+-- drop the schema and all the objects
+SET client_min_messages TO WARNING;
+DROP SCHEMA "extension'test" CASCADE;

@@ -593,7 +593,7 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 	}
 
 	/*
-	 * If extension command is run for/on citus, leave therest to standard utility hook
+	 * If extension command is run for/on citus, leave the rest to standard utility hook
 	 * by returning false.
 	 */
 	if (IsCreateAlterExtensionUpdateCitusStmt(parseTree))

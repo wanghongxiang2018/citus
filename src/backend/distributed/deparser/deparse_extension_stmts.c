@@ -30,11 +30,11 @@ static void AppendAlterExtensionStmt(StringInfo buf,
 
 
 /*
- * GetCreateExtensionOption fetches the string value of DefElem node with
+ * GetExtensionOption returns palloc'd string value of DefElem node with
  * "defname" from "options" list
  */
 const char *
-GetCreateAlterExtensionOption(List *extensionOptions, const char *defname)
+GetExtensionOption(List *extensionOptions, const char *defname)
 {
 	const char *targetStr = NULL;
 
@@ -96,9 +96,15 @@ AppendCreateExtensionStmt(StringInfo buf, CreateExtensionStmt *createExtensionSt
 	 * of statement's content before propagating it to worker nodes.
 	 * We also do not care old_version for now.
 	 */
-	const char *newVersion = GetCreateAlterExtensionOption(optionsList, "new_version");
-	const char *schemaName = GetCreateAlterExtensionOption(optionsList, "schema");
+	const char *schemaName = GetExtensionOption(optionsList, "schema");
+	const char *newVersion = GetExtensionOption(optionsList, "new_version");
 
+	Assert(schemaName != NULL);
+
+	/*
+	 * We do not check for if schemaName is NULL as we append it in deparse
+	 * logic if it is not specified.
+	 */
 	schemaName = quote_identifier(schemaName);
 
 	appendStringInfo(buf, "CREATE EXTENSION IF NOT EXISTS %s WITH SCHEMA %s",
@@ -142,7 +148,7 @@ AppendAlterExtensionStmt(StringInfo buf, AlterExtensionStmt *alterExtensionStmt)
 
 	List *optionsList = alterExtensionStmt->options;
 
-	const char *newVersion = GetCreateAlterExtensionOption(optionsList, "new_version");
+	const char *newVersion = GetExtensionOption(optionsList, "new_version");
 
 	appendStringInfo(buf, "ALTER EXTENSION %s UPDATE ", extensionName);
 
@@ -209,6 +215,7 @@ static void
 AppendExtensionNameList(StringInfo str, List *objects)
 {
 	ListCell *objectCell = NULL;
+
 	foreach(objectCell, objects)
 	{
 		const char *extensionName = strVal(lfirst(objectCell));

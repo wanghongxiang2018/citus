@@ -76,16 +76,15 @@ ErrorIfUnstableCreateOrAlterExtensionStmt(Node *parseTree)
 
 
 /*
- * ExtractNewExtensionVersion returns the new extension version specified by
- * a CREATE or ALTER EXTENSION statement. Other inputs are not permitted. This
- * function returns NULL for statements with no explicit version specified.
+ * ExtractNewExtensionVersion returns the palloc'd new extension version specified
+ * by a CREATE or ALTER EXTENSION statement. Other inputs are not permitted.
+ * This function returns NULL for statements with no explicit version specified.
  */
 static char *
 ExtractNewExtensionVersion(Node *parseTree)
 {
-	char *newVersion = NULL;
+	const char *newVersion = NULL;
 	List *optionsList = NIL;
-	ListCell *optionsCell = NULL;
 
 	if (IsA(parseTree, CreateExtensionStmt))
 	{
@@ -101,15 +100,7 @@ ExtractNewExtensionVersion(Node *parseTree)
 		Assert(false);
 	}
 
-	foreach(optionsCell, optionsList)
-	{
-		DefElem *defElement = (DefElem *) lfirst(optionsCell);
-		if (strncmp(defElement->defname, "new_version", NAMEDATALEN) == 0)
-		{
-			newVersion = strVal(defElement->arg);
-			break;
-		}
-	}
+	newVersion = GetExtensionOption(optionsList, "new_version");
 
 	/* return target string safely */
 	if (newVersion)
@@ -137,6 +128,15 @@ PlanCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const char *qu
 	const char *createExtensionStmtSql = NULL;
 
 	if (!ShouldPropagateExtensionCommand((Node *) createExtensionStmt))
+	{
+		return NIL;
+	}
+
+	/*
+	 * If the extension command is a part of a bigger multi-statement transaction,
+	 * do not propagate it
+	 */
+	if (IsMultiStatementTransaction())
 	{
 		return NIL;
 	}
@@ -190,7 +190,7 @@ AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
 {
 	List *optionsList = createExtensionStmt->options;
 
-	const char *schemaName = GetCreateAlterExtensionOption(optionsList, "schema");
+	const char *schemaName = GetExtensionOption(optionsList, "schema");
 
 	if (!schemaName)
 	{
@@ -210,8 +210,8 @@ AddSchemaFieldIfMissing(CreateExtensionStmt *createExtensionStmt)
 
 
 /*
- * GetCurrentSchema returns the name of the schema that the postgres would
- * pick primarily for a CREATE EXTENSION statement that does not include
+ * GetCurrentSchema returns the palloc'd name of the schema that the postgres
+ * would pick primarily for a CREATE EXTENSION statement that does not include
  * "WITH SCHEMA" clause.
  * Cannot return NULL, errors out as Postgres would do if NULL.
  */
@@ -303,6 +303,15 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 		return NIL;
 	}
 
+	/* get distributed extensions to be dropped in worker nodes as well */
+	distributedExtensions = FilterDistributedExtensions(allDroppedExtensions);
+
+	if (list_length(distributedExtensions) <= 0)
+	{
+		/* no distributed extensions to drop */
+		return NIL;
+	}
+
 	/* extension management can only be done via coordinator node */
 	EnsureCoordinator();
 
@@ -321,15 +330,6 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 	 * or can still safely be put in sequential mode
 	 */
 	EnsureSequentialModeForExtensionDDL();
-
-	/* get distributed extensions to be dropped in worker nodes as well */
-	distributedExtensions = FilterDistributedExtensions(allDroppedExtensions);
-
-	if (list_length(distributedExtensions) <= 0)
-	{
-		/* no distributed extensions to drop */
-		return NIL;
-	}
 
 	distributedExtensionAddresses = ExtensionNameListToObjectAddressList(
 		distributedExtensions);
@@ -416,16 +416,16 @@ ExtensionNameListToObjectAddressList(List *extensionObjectList)
 {
 	List *extensionObjectAddressList = NIL;
 
-	/*
-	 * We set missingOk to false as we assume all the objects in
-	 * extensionObjectList list are valid and distributed.
-	 */
-	bool missingOk = false;
-
 	ListCell *objectCell = NULL;
 
 	foreach(objectCell, extensionObjectList)
 	{
+		/*
+		 * We set missingOk to false as we assume all the objects in
+		 * extensionObjectList list are valid and distributed.
+		 */
+		bool missingOk = false;
+
 		const char *extensionName = strVal(lfirst(objectCell));
 
 		ObjectAddress *address = palloc0(sizeof(ObjectAddress));
@@ -456,18 +456,17 @@ PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 		return NIL;
 	}
 
+	/* extension management can only be done via coordinator node */
+	EnsureCoordinator();
+
 	/*
 	 * Make sure that no new nodes are added after this point until the end of the
 	 * transaction by taking a RowShareLock on pg_dist_node, which conflicts with the
 	 * ExclusiveLock taken by master_add_node.
-	 * This guarantees that all active nodes will change the extension schema, because
-	 * they will either get it now, or get it in master_add_node after this transaction
-	 * finishes and the pg_dist_object record becomes visible.
+	 * This guarantees that all active nodes will update the extension schema after
+	 * this transaction finishes and the pg_dist_object record becomes visible.
 	 */
 	LockRelationOid(DistNodeRelationId(), RowShareLock);
-
-	/* extension management can only be done via coordinator node */
-	EnsureCoordinator();
 
 	/*
 	 * Make sure that the current transaction is already in sequential mode,
@@ -520,12 +519,9 @@ PlanAlterExtensionUpdateStmt(AlterExtensionStmt *alterExtensionStmt, const
 							 char *queryString)
 {
 	const char *alterExtensionStmtSql = NULL;
-	const ObjectAddress *extensionAddress = NULL;
 	List *commands = NIL;
 
-	extensionAddress = GetObjectAddressFromParseTree((Node *) alterExtensionStmt, false);
-
-	if (!ShouldPropagateExtensionCommand((Node *) extensionAddress))
+	if (!ShouldPropagateExtensionCommand((Node *) alterExtensionStmt))
 	{
 		return NIL;
 	}
@@ -537,9 +533,9 @@ PlanAlterExtensionUpdateStmt(AlterExtensionStmt *alterExtensionStmt, const
 	 * Make sure that no new nodes are added after this point until the end of the
 	 * transaction by taking a RowShareLock on pg_dist_node, which conflicts with the
 	 * ExclusiveLock taken by master_add_node.
-	 * This guarantees that all active nodes will update the extension, because they will
-	 * either get it now, or get it in master_add_node after this transaction finishes and
-	 * the pg_dist_object record becomes visible.
+	 * This guarantees that all active nodes will update the extension version, because
+	 * they will either get it now, or get it in master_add_node after this transaction
+	 * finishes and the pg_dist_object record becomes visible.
 	 */
 	LockRelationOid(DistNodeRelationId(), RowShareLock);
 
@@ -614,15 +610,6 @@ ShouldPropagateExtensionCommand(Node *parseTree)
 	}
 
 	/*
-	 * If the extension command is a part of a bigger multi-statement transaction,
-	 * do not propagate it
-	 */
-	if (IsMultiStatementTransaction())
-	{
-		return false;
-	}
-
-	/*
 	 * If extension command is run for/on citus, leave the rest to standard utility hook
 	 * by returning false.
 	 */
@@ -674,7 +661,7 @@ IsCreateAlterExtensionUpdateCitusStmt(Node *parseTree)
 	 * Now that we have CreateExtensionStmt or AlterExtensionStmt,
 	 * check if it is run for/on citus
 	 */
-	return (strncmp(extensionName, "citus", NAMEDATALEN) == 0);
+	return (strncmp(extensionName, CITUS_APPLICATION_NAME, NAMEDATALEN) == 0);
 }
 
 
@@ -698,7 +685,7 @@ IsDropCitusStmt(Node *parseTree)
 	{
 		const char *extensionName = strVal(lfirst(objectCell));
 
-		if (strncmp(extensionName, "citus", NAMEDATALEN) == 0)
+		if (strncmp(extensionName, CITUS_APPLICATION_NAME, NAMEDATALEN) == 0)
 		{
 			return true;
 		}
@@ -731,7 +718,7 @@ IsAlterExtensionSetSchemaCitus(Node *parseTree)
 			 * Now that we have AlterObjectSchemaStmt for an extension,
 			 * check if it is run for/on citus
 			 */
-			return (strncmp(extensionName, "citus", NAMEDATALEN) == 0);
+			return (strncmp(extensionName, CITUS_APPLICATION_NAME, NAMEDATALEN) == 0);
 		}
 	}
 
@@ -779,6 +766,13 @@ RecreateExtensionStmt(Oid extensionOid)
 	CreateExtensionStmt *createExtensionStmt = makeNode(CreateExtensionStmt);
 
 	char *extensionName = get_extension_name(extensionOid);
+
+	if (!extensionName)
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),
+						errmsg("extension with oid %u does not exist",
+							   extensionOid)));
+	}
 
 	/* schema DefElement related variables */
 	Oid extensionSchemaOid = InvalidOid;

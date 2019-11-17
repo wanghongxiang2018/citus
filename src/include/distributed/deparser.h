@@ -71,8 +71,8 @@ extern void QualifyAlterFunctionOwnerStmt(AlterOwnerStmt *stmt);
 extern void QualifyAlterFunctionDependsStmt(AlterObjectDependsStmt *stmt);
 
 /* forward declarations for deparse_extension_stmts.c */
-extern const char * GetCreateAlterExtensionOption(List *extensionOptions, const
-												  char *defname);
+extern const char * GetExtensionOption(List *extensionOptions, const
+									   char *defname);
 extern const char * DeparseCreateExtensionStmt(CreateExtensionStmt *stmt);
 extern const char * DeparseDropExtensionStmt(DropStmt *stmt);
 extern const char * DeparseAlterExtensionSchemaStmt(

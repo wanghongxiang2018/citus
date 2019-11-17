@@ -377,11 +377,6 @@ SupportedDependencyByCitus(const ObjectAddress *address)
 				return true;
 			}
 
-			case OCLASS_EXTENSION:
-			{
-				return true;
-			}
-
 			default:
 			{
 				return false;
@@ -404,6 +399,11 @@ SupportedDependencyByCitus(const ObjectAddress *address)
 		}
 
 		case OCLASS_PROC:
+		{
+			return true;
+		}
+
+		case OCLASS_EXTENSION:
 		{
 			return true;
 		}

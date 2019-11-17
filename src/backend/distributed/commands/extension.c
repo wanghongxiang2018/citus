@@ -307,6 +307,16 @@ PlanDropExtensionStmt(DropStmt *dropStmt, const char *queryString)
 	EnsureCoordinator();
 
 	/*
+	 * Make sure that no new nodes are added after this point until the end of the
+	 * transaction by taking a RowShareLock on pg_dist_node, which conflicts with the
+	 * ExclusiveLock taken by master_add_node.
+	 * This guarantees that all active nodes will drop the extension, because they will
+	 * either get it now, or get it in master_add_node after this transaction finishes and
+	 * the pg_dist_object record becomes visible.
+	 */
+	LockRelationOid(DistNodeRelationId(), RowShareLock);
+
+	/*
 	 * Make sure that the current transaction is already in sequential mode,
 	 * or can still safely be put in sequential mode
 	 */
@@ -446,6 +456,16 @@ PlanAlterExtensionSchemaStmt(AlterObjectSchemaStmt *alterExtensionStmt, const
 		return NIL;
 	}
 
+	/*
+	 * Make sure that no new nodes are added after this point until the end of the
+	 * transaction by taking a RowShareLock on pg_dist_node, which conflicts with the
+	 * ExclusiveLock taken by master_add_node.
+	 * This guarantees that all active nodes will change the extension schema, because
+	 * they will either get it now, or get it in master_add_node after this transaction
+	 * finishes and the pg_dist_object record becomes visible.
+	 */
+	LockRelationOid(DistNodeRelationId(), RowShareLock);
+
 	/* extension management can only be done via coordinator node */
 	EnsureCoordinator();
 
@@ -512,6 +532,16 @@ PlanAlterExtensionUpdateStmt(AlterExtensionStmt *alterExtensionStmt, const
 
 	/* extension management can only be done via coordinator node */
 	EnsureCoordinator();
+
+	/*
+	 * Make sure that no new nodes are added after this point until the end of the
+	 * transaction by taking a RowShareLock on pg_dist_node, which conflicts with the
+	 * ExclusiveLock taken by master_add_node.
+	 * This guarantees that all active nodes will update the extension, because they will
+	 * either get it now, or get it in master_add_node after this transaction finishes and
+	 * the pg_dist_object record becomes visible.
+	 */
+	LockRelationOid(DistNodeRelationId(), RowShareLock);
 
 	/*
 	 * Make sure that the current transaction is already in sequential mode,

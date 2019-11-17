@@ -579,13 +579,16 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 
 		if (IsA(parsetree, AlterExtensionStmt))
 		{
-			ddlJobs = PlanAlterExtensionUpdateStmt(castNode(AlterExtensionStmt, parsetree), queryString);
+			ddlJobs = PlanAlterExtensionUpdateStmt(castNode(AlterExtensionStmt,
+															parsetree), queryString);
 		}
 
 		if (IsA(parsetree, AlterExtensionContentsStmt))
 		{
-	        ereport(NOTICE, (errmsg("Citus does not propagate adding/dropping member objects"),
-                         errhint("You can add/drop the member objects on the workers as well.")));							
+			ereport(NOTICE, (errmsg(
+								 "Citus does not propagate adding/dropping member objects"),
+							 errhint(
+								 "You can add/drop the member objects on the workers as well.")));
 		}
 
 		/*

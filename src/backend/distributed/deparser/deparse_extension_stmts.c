@@ -104,14 +104,21 @@ AppendDropExtensionStmt(StringInfo str, DropStmt *dropStmt)
 	/* we append "IF NOT EXISTS" clause regardless of the content of the statement. */
 	appendStringInfoString(str, "DROP EXTENSION IF EXISTS ");
 
-	/*
-	 * Here we only need to fetch "objects" list that is storing the
-	 * object names to be deleted.
+	/* 
+	 * Pick the distributed ones from the  "objects" list that is storing 
+	 * the object names to be deleted.
 	 */
 	AppendExtensionNameList(str, dropStmt->objects);
 
-	/* we append "CASCADE" clause regardless of the content of the statement. */
-	appendStringInfoString(str, " CASCADE;");
+	/* depending on behaviour field of DropStmt, we should append CASCADE or RESTRICT */
+	if (dropStmt->behavior == DROP_CASCADE)
+	{
+		appendStringInfoString(str, " CASCADE;");
+	}
+	else
+	{
+		appendStringInfoString(str, " RESTRICT;");
+	}
 }
 
 

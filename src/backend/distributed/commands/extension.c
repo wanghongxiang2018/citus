@@ -723,18 +723,37 @@ CreateExtensionDDLCommand(const ObjectAddress *extensionAddress)
 static Node *
 RecreateExtensionStmt(Oid extensionOid)
 {
-	CreateExtensionStmt *stmt = makeNode(CreateExtensionStmt);
+	CreateExtensionStmt *createExtensionStmt = makeNode(CreateExtensionStmt);
 
 	char *extensionName = get_extension_name(extensionOid);
 
+	/* schema DefElement related variables */
+	Oid extensionSchemaOid = InvalidOid;
+	char *extensionSchemaName = NULL;
+	Node *schemaNameArg = NULL;
+
+	/* set location to -1 as it is unknown */
+	int location = -1;
+	DefElem *schemaDefElement = NULL;
+
 	/* set extension name and if_not_exists fields */
-	stmt->extname = extensionName;
-	stmt->if_not_exists = true;
+	createExtensionStmt->extname = extensionName;
+	createExtensionStmt->if_not_exists = true;
 
-	/* append the missing schema name DefElem */
-	AddSchemaFieldIfMissing(stmt);
+	/* get schema name that extension was created on */
+	extensionSchemaOid = get_extension_schema(extensionOid);
+	extensionSchemaName = get_namespace_name(extensionSchemaOid);
 
-	return (Node *) stmt;
+	/* make DefEleme for extensionSchemaName */
+	schemaNameArg = (Node *) makeString(extensionSchemaName);
+
+	schemaDefElement = makeDefElem("schema", schemaNameArg, location);
+
+	/* append the schema name DefElem finally */
+	createExtensionStmt->options = lappend(createExtensionStmt->options,
+										   schemaDefElement);
+
+	return (Node *) createExtensionStmt;
 }
 
 

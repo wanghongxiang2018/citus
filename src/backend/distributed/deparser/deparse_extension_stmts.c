@@ -104,8 +104,8 @@ AppendDropExtensionStmt(StringInfo str, DropStmt *dropStmt)
 	/* we append "IF NOT EXISTS" clause regardless of the content of the statement. */
 	appendStringInfoString(str, "DROP EXTENSION IF EXISTS ");
 
-	/* 
-	 * Pick the distributed ones from the  "objects" list that is storing 
+	/*
+	 * Pick the distributed ones from the  "objects" list that is storing
 	 * the object names to be deleted.
 	 */
 	AppendExtensionNameList(str, dropStmt->objects);

@@ -63,7 +63,7 @@ FindSubPlansUsedInPlan(DistributedPlan *plan)
 		if (rangeTableEntry->rtekind == RTE_FUNCTION)
 		{
 			Const *resultIdConst =
-				FindResultIdOfIntermediateResultFunction(rangeTableEntry);
+				FindIntermediateResultIdIfExists(rangeTableEntry);
 
 			if (resultIdConst == NULL)
 			{

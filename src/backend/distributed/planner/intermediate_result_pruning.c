@@ -23,15 +23,16 @@ static IntermediateResultsHashEntry * SearchIntermediateResult(HTAB
 
 
 /*
- * FindSubPlansUsedInPlan adds all the subplans used by the plan into
- * plan->usedSubPlanNodeList field. Simply traversing the range table entries in the plan.
+ * FindSubPlansUsedInPlan finds all the subplans used by the plan by traversing
+ * the range table entries in the plan.
  */
-void
+List *
 FindSubPlansUsedInPlan(DistributedPlan *plan)
 {
 	Query *jobQuery = NULL;
 	List *rangeTableList = NIL;
 	ListCell *rangeTableCell = NULL;
+	List *subPlanList = NIL;
 
 	jobQuery = plan->workerJob == NULL ? plan->insertSelectSubquery :
 			   plan->workerJob->jobQuery;
@@ -50,7 +51,7 @@ FindSubPlansUsedInPlan(DistributedPlan *plan)
 	 */
 	if (jobQuery == NULL)
 	{
-		return;
+		return NIL;
 	}
 
 	rangeTableList = ExtractRangeTableEntryList(jobQuery);
@@ -71,15 +72,16 @@ FindSubPlansUsedInPlan(DistributedPlan *plan)
 				continue;
 			}
 
-			plan->usedSubPlanNodeList = list_append_unique(plan->usedSubPlanNodeList,
-														   resultIdConst);
+			subPlanList = list_append_unique(subPlanList, resultIdConst);
 
 			resultIdDatum = resultIdConst->constvalue;
 			resultId = TextDatumGetCString(resultIdDatum);
-			elog(DEBUG4, "appending %s subplan to usedSubPlanNodeList of plan %lu",
+			elog(DEBUG4, "Results of SubPlan %s is used in Plan %lu",
 				 resultId, plan->planId);
 		}
 	}
+
+	return subPlanList;
 }
 
 

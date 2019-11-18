@@ -574,7 +574,7 @@ CreateDistributedPlannedStmt(uint64 planId, PlannedStmt *localPlan, Query *origi
 	}
 
 	/* traverse distributedPlan and extract the list of used subplans */
-	FindSubPlansUsedInPlan(distributedPlan);
+	distributedPlan->usedSubPlanNodeList = FindSubPlansUsedInPlan(distributedPlan);
 
 	/* remember the plan's identifier for identifying subplans */
 	distributedPlan->planId = planId;
@@ -811,7 +811,7 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	Assert(distributedPlan && distributedPlan->planningError == NULL);
 
 	/* traverse distributedPlan and extract the list of used subplans */
-	FindSubPlansUsedInPlan(distributedPlan);
+	distributedPlan->usedSubPlanNodeList = FindSubPlansUsedInPlan(distributedPlan);
 
 	return distributedPlan;
 }

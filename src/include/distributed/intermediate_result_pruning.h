@@ -14,7 +14,7 @@
 #include "distributed/subplan_execution.h"
 
 
-extern void FindSubPlansUsedInPlan(DistributedPlan *plan);
+extern List * FindSubPlansUsedInPlan(DistributedPlan *plan);
 
 extern List * FindAllWorkerNodesUsingSubplan(HTAB *intermediateResultsHash,
 											 char *resultId);

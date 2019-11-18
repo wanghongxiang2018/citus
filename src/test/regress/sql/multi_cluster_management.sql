@@ -82,6 +82,7 @@ SELECT master_update_node(nodeid, 'localhost', :worker_2_port + 3) FROM pg_dist_
 SET ROLE node_metadata_user;
 BEGIN;
 SELECT 1 FROM master_add_inactive_node('localhost', :worker_2_port + 1);
+SELECT * FROM pg_extension; SELECT * FROM citus.pg_dist_object; --TODO:debug
 SELECT 1 FROM master_activate_node('localhost', :worker_2_port + 1);
 SELECT 1 FROM master_disable_node('localhost', :worker_2_port + 1);
 SELECT 1 FROM master_remove_node('localhost', :worker_2_port + 1);

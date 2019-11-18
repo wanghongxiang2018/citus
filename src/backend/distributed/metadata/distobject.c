@@ -148,13 +148,6 @@ MarkObjectDistributed(const ObjectAddress *distAddress)
 	char *insertQuery = "INSERT INTO citus.pg_dist_object (classid, objid, objsubid) "
 						"VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
 
-	if (CitusExtensionObject(distAddress))
-	{
-		/* see the function comment for the details */
-		elog(INFO, "We do not record citus as an object");
-		return;
-	}
-
 	spiStatus = ExecuteCommandAsSuperuser(insertQuery, paramCount, paramTypes,
 										  paramValues);
 	if (spiStatus < 0)

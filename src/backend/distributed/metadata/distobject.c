@@ -179,9 +179,6 @@ CitusExtensionObject(const ObjectAddress *objectAddress)
 	}
 
 	extensionName = get_extension_name(objectAddress->objectId);
-	elog(INFO, "%s-%s-%d", extensionName, CITUS_NAME, strncasecmp(extensionName,
-																  CITUS_NAME,
-																  NAMEDATALEN));
 	if (extensionName != NULL &&
 		strncasecmp(extensionName, CITUS_NAME, NAMEDATALEN) == 0)
 	{

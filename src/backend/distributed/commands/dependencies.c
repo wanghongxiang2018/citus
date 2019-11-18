@@ -71,6 +71,10 @@ EnsureDependenciesExistsOnAllNodes(const ObjectAddress *target)
 
 		if (CitusExtensionObject(dependency))
 		{
+			/*
+			 * We currently do not prefer to mark Citus extension as distributed
+			 * because it could complicate role management.
+			 */
 			continue;
 		}
 
@@ -115,6 +119,16 @@ EnsureDependenciesExistsOnAllNodes(const ObjectAddress *target)
 	foreach(dependencyCell, dependenciesWithCommands)
 	{
 		ObjectAddress *dependency = (ObjectAddress *) lfirst(dependencyCell);
+
+		if (CitusExtensionObject(dependency))
+		{
+			/*
+			 * We currently do not prefer to mark Citus extension as distributed
+			 * because it could complicate role management.
+			 */
+			continue;
+		}
+
 		MarkObjectDistributed(dependency);
 	}
 

@@ -19,9 +19,12 @@
 #include "catalog/dependency.h"
 #include "catalog/namespace.h"
 #include "catalog/objectaddress.h"
+#include "catalog/pg_extension_d.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "citus_version.h"
+#include "commands/extension.h"
 #include "distributed/metadata/distobject.h"
 #include "distributed/metadata/pg_dist_object.h"
 #include "distributed/metadata_cache.h"
@@ -37,6 +40,7 @@
 
 static int ExecuteCommandAsSuperuser(char *query, int paramCount, Oid *paramTypes,
 									 Datum *paramValues);
+static bool CitusExtensionObject(const ObjectAddress *objectAddress);
 
 PG_FUNCTION_INFO_V1(master_unmark_object_distributed);
 
@@ -120,7 +124,11 @@ ObjectExists(const ObjectAddress *address)
 
 /*
  * MarkObjectDistributed marks an object as a distributed object by citus. Marking is done
- * by adding appropriate entries to citus.pg_dist_object
+ * by adding appropriate entries to citus.pg_dist_object.
+ *
+ * The only exception is the Citus extension itself, we never mark it as distributed
+ * object because that'd prevent rolling upgrades as we propagate ALTER EXTENSION
+ * commands on distributed extensions.
  */
 void
 MarkObjectDistributed(const ObjectAddress *distAddress)
@@ -141,12 +149,43 @@ MarkObjectDistributed(const ObjectAddress *distAddress)
 	char *insertQuery = "INSERT INTO citus.pg_dist_object (classid, objid, objsubid) "
 						"VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
 
+	if (CitusExtensionObject(distAddress))
+	{
+		/* see the function comment for the details */
+		return;
+	}
+
 	spiStatus = ExecuteCommandAsSuperuser(insertQuery, paramCount, paramTypes,
 										  paramValues);
 	if (spiStatus < 0)
 	{
 		ereport(ERROR, (errmsg("failed to insert object into citus.pg_dist_object")));
 	}
+}
+
+
+/*
+ * CitusExtensionObject returns true if the objectAddress represents
+ * the Citus extension.
+ */
+static bool
+CitusExtensionObject(const ObjectAddress *objectAddress)
+{
+	char *extensionName = false;
+
+	if (objectAddress->classId != ExtensionRelationId)
+	{
+		return false;
+	}
+
+	extensionName = get_extension_name(objectAddress->objectId);
+	if (extensionName != NULL &&
+		strncasecmp(extensionName, CITUS_NAME, NAMEDATALEN) == 0)
+	{
+		return true;
+	}
+
+	return false;
 }
 
 

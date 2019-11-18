@@ -67,13 +67,15 @@ EnsureDependenciesExistsOnAllNodes(const ObjectAddress *target)
 	foreach(dependencyCell, dependencies)
 	{
 		ObjectAddress *dependency = (ObjectAddress *) lfirst(dependencyCell);
-		List *dependencyCommands = GetDependencyCreateDDLCommands(dependency);
-		ddlCommands = list_concat(ddlCommands, dependencyCommands);
+		List *dependencyCommands = NIL;
 
 		if (CitusExtensionObject(dependency))
 		{
 			continue;
 		}
+
+		dependencyCommands = GetDependencyCreateDDLCommands(dependency);
+		ddlCommands = list_concat(ddlCommands, dependencyCommands);
 
 		/* create a new list with dependencies that actually created commands */
 		if (list_length(dependencyCommands) > 0)

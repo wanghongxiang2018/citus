@@ -447,17 +447,7 @@ IsCitusPlan(Plan *plan)
 		return true;
 	}
 
-	if (plan->lefttree != NULL && IsCitusPlan(plan->lefttree))
-	{
-		return true;
-	}
-
-	if (plan->righttree != NULL && IsCitusPlan(plan->righttree))
-	{
-		return true;
-	}
-
-	return false;
+	return IsCitusPlan(plan->lefttree) || IsCitusPlan(plan->righttree);
 }
 
 

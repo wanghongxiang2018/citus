@@ -70,6 +70,11 @@ EnsureDependenciesExistsOnAllNodes(const ObjectAddress *target)
 		List *dependencyCommands = GetDependencyCreateDDLCommands(dependency);
 		ddlCommands = list_concat(ddlCommands, dependencyCommands);
 
+		if (CitusExtensionObject(dependency))
+		{
+			continue;
+		}
+
 		/* create a new list with dependencies that actually created commands */
 		if (list_length(dependencyCommands) > 0)
 		{

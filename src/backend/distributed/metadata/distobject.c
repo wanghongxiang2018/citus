@@ -40,7 +40,6 @@
 
 static int ExecuteCommandAsSuperuser(char *query, int paramCount, Oid *paramTypes,
 									 Datum *paramValues);
-static bool CitusExtensionObject(const ObjectAddress *objectAddress);
 
 PG_FUNCTION_INFO_V1(master_unmark_object_distributed);
 
@@ -169,7 +168,7 @@ MarkObjectDistributed(const ObjectAddress *distAddress)
  * CitusExtensionObject returns true if the objectAddress represents
  * the Citus extension.
  */
-static bool
+bool
 CitusExtensionObject(const ObjectAddress *objectAddress)
 {
 	char *extensionName = false;

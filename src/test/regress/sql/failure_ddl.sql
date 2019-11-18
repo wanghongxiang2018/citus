@@ -30,13 +30,7 @@ SELECT create_distributed_table('test_table', 'key');
 -- in the first test, kill just in the first 
 -- response we get from the worker
 SELECT citus.mitmproxy('conn.onAuthenticationOk().kill()');
-SET client_min_messages TO DEBUG4;
-SET citus.log_remote_commands TO ON;
-SELECT * FROM citus.pg_dist_object;
 ALTER TABLE test_table ADD COLUMN new_column INT;
-SELECT * FROM citus.pg_dist_object;
-RESET client_min_messages;
-RESET citus.log_remote_commands ;
 SELECT array_agg(name::text ORDER BY name::text) FROM public.table_attrs where relid = 'test_table'::regclass;
 
 -- cancel just in the first 

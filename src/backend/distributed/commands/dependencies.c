@@ -75,7 +75,7 @@ EnsureDependenciesExistsOnAllNodes(const ObjectAddress *target)
 			 * We currently do not prefer to mark Citus extension as distributed
 			 * because it could complicate role management.
 			 */
-			continue;
+			//continue;
 		}
 
 		dependencyCommands = GetDependencyCreateDDLCommands(dependency);
@@ -126,7 +126,7 @@ EnsureDependenciesExistsOnAllNodes(const ObjectAddress *target)
 			 * We currently do not prefer to mark Citus extension as distributed
 			 * because it could complicate role management.
 			 */
-			continue;
+			//continue;
 		}
 
 		MarkObjectDistributed(dependency);

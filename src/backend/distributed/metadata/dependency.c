@@ -640,6 +640,10 @@ ApplyAddToDependencyList(ObjectAddressCollector *collector, Form_pg_depend pg_de
 	{
 		return;
 	}
+	else if (CitusExtensionObject(dependency))
+	{
+		return;
+	}
 
 	CollectObjectAddress(collector, &address);
 }

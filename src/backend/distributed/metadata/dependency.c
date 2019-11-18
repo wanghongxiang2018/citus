@@ -19,6 +19,7 @@
 #include "catalog/pg_class.h"
 #include "catalog/pg_depend.h"
 #include "catalog/pg_type.h"
+#include "distributed/metadata/distobject.h"
 #include "distributed/commands/utility_hook.h"
 #include "distributed/metadata/dependency.h"
 #include "distributed/metadata/distobject.h"
@@ -640,7 +641,7 @@ ApplyAddToDependencyList(ObjectAddressCollector *collector, Form_pg_depend pg_de
 	{
 		return;
 	}
-	else if (CitusExtensionObject(dependency))
+	else if (CitusExtensionObject(&address))
 	{
 		return;
 	}

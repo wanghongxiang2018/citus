@@ -269,6 +269,16 @@ ProcessCreateExtensionStmt(CreateExtensionStmt *createExtensionStmt, const
 		return;
 	}
 
+
+	/*
+	 * If the extension command is a part of a bigger multi-statement transaction,
+	 * do not propagate it
+	 */
+	if (IsMultiStatementTransaction())
+	{
+		return;
+	}
+
 	extensionAddress = GetObjectAddressFromParseTree((Node *) createExtensionStmt, false);
 
 	EnsureDependenciesExistsOnAllNodes(extensionAddress);

@@ -10,6 +10,7 @@
 
 #include "distributed/citus_custom_scan.h"
 #include "distributed/intermediate_result_pruning.h"
+#include "distributed/log_utils.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/worker_manager.h"
 #include "utils/builtins.h"
@@ -61,11 +62,8 @@ FindSubPlansUsedInPlan(DistributedPlan *plan)
 		RangeTblEntry *rangeTableEntry = lfirst(rangeTableCell);
 		if (rangeTableEntry->rtekind == RTE_FUNCTION)
 		{
-			Const *resultIdConst = NULL;
-			Datum resultIdDatum = 0;
-			char *resultId = NULL;
-
-			resultIdConst = FindResultIdOfIntermediateResultFunction(rangeTableEntry);
+			Const *resultIdConst =
+				FindResultIdOfIntermediateResultFunction(rangeTableEntry);
 
 			if (resultIdConst == NULL)
 			{
@@ -74,10 +72,14 @@ FindSubPlansUsedInPlan(DistributedPlan *plan)
 
 			subPlanList = list_append_unique(subPlanList, resultIdConst);
 
-			resultIdDatum = resultIdConst->constvalue;
-			resultId = TextDatumGetCString(resultIdDatum);
-			elog(DEBUG4, "Results of SubPlan %s is used in Plan %lu",
-				 resultId, plan->planId);
+			if (IsLoggableLevel(DEBUG4))
+			{
+				Datum resultIdDatum = resultIdConst->constvalue;
+				char *resultId = TextDatumGetCString(resultIdDatum);
+
+				elog(DEBUG4, "Result of SubPlan %s is used in Plan %lu",
+					 resultId, plan->planId);
+			}
 		}
 	}
 

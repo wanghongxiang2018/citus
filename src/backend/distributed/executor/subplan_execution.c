@@ -85,15 +85,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		if (workerNodeList == NIL)
 		{
 			writeLocalFile = true;
-			elog(DEBUG1, "%s is not broadcasted to any node, write to local only",
-				 resultId);
+			elog(DEBUG1, "Subplan %s will not broadcasted to any node, "
+						 "will write to local only", resultId);
 		}
 
 		SubPlanLevel++;
 		estate = CreateExecutorState();
-		copyDest = (DestReceiver *) CreateRemoteFileDestReceiver(resultId, estate,
-																 workerNodeList,
-																 writeLocalFile);
+		copyDest = CreateRemoteFileDestReceiver(resultId, estate, workerNodeList,
+												writeLocalFile);
 
 		ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
 

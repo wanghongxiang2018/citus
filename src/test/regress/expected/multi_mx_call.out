@@ -139,7 +139,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 11 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('11_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  11_1 is broadcasted to localhost:57638
+DEBUG:  Subplan 11_1 will be broadcasted to localhost:57638
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -226,7 +226,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 13 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('13_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  13_1 is broadcasted to localhost:57637
+DEBUG:  Subplan 13_1 will be broadcasted to localhost:57637
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -263,7 +263,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 15 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('15_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  15_1 is broadcasted to localhost:57638
+DEBUG:  Subplan 15_1 will be broadcasted to localhost:57638
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -285,7 +285,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 18 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('18_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  18_1 is broadcasted to localhost:57637
+DEBUG:  Subplan 18_1 will be broadcasted to localhost:57637
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -308,7 +308,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 20 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('20_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  20_1 is broadcasted to localhost:57638
+DEBUG:  Subplan 20_1 will be broadcasted to localhost:57638
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -331,7 +331,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 22 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('22_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  22_1 is broadcasted to localhost:57637
+DEBUG:  Subplan 22_1 will be broadcasted to localhost:57637
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -427,7 +427,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 28 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('28_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  28_1 is broadcasted to localhost:57638
+DEBUG:  Subplan 28_1 will be broadcasted to localhost:57638
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -476,7 +476,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 1 query after replacing subqueries and CTEs: SELECT (3 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('1_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  1_1 is broadcasted to localhost:57638
+DEBUG:  Subplan 1_1 will be broadcasted to localhost:57638
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  
@@ -501,7 +501,7 @@ PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
 DEBUG:  Plan 3 query after replacing subqueries and CTEs: SELECT (1 OPERATOR(pg_catalog.+) (SELECT intermediate_result.sum FROM read_intermediate_result('3_1'::text, 'binary'::citus_copy_format) intermediate_result(sum bigint)))
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
-DEBUG:  3_1 is broadcasted to localhost:57637
+DEBUG:  Subplan 3_1 will be broadcasted to localhost:57637
 CONTEXT:  SQL statement "SELECT y + (select sum(t1.val + t2.val) from multi_mx_call.mx_call_dist_table_1 t1 join multi_mx_call.mx_call_dist_table_2 t2 on t1.id = t2.id)"
 PL/pgSQL function mx_call_proc(integer,integer) line 8 at assignment
  y  

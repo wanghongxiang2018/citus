@@ -1,46 +1,50 @@
 ### citus v9.1.0 (November 21, 2019) ###
 
-* Adds extensions to distributed object propagation infrastructure
+* Prunes intermediate result broadcasting
 
-* Adds support for ALTER ROLE propagation
-
-* Adds support for CREATE AGGREGATE propagation
-
-* Adds support for expressions in reference joins
-
-* Adds support for RECORD in multi-shard queries
-
-* Adds support for simple in queries on unique columns with repartition joins
-
-* Adds support for subqueries in HAVING clauses
-
-* Automatically distributes unary aggregegates with a combinefunc and a non-internal stype
-
-* Disallows distributed function creation when replication_model is 'statement'
-
-* Drops support for deprecated real-time and router executors
-
-* Fixes a bug in local execution that could cause missing rows in RETURNING
-
-* Fixes a bug that caused maintenance daemon to fail on standby nodes
+* Add extensions to distributed object propagation infrastructure
 
 * Fixes a bug that caused other CREATE EXTENSION commands to take longer
 
-* Fixes a bug that prevented REFRESH MATERIALIZED VIEW
+* Prevent Citus extension becoming distributed objec
 
-* Fixes a bug when view is used in modify statements
+* Add ALTER ROLE propagation and role propagation for master_add_node
+
+* Expression in reference join
+
+* support RECORD in multi-shard queries
+
+* remove `citus.worker_list_file` GUC
+
+* Support simple in queries on unique columns with repartition joins
+
+* Fix queries with repartition joins and group by unique colum
+
+* Fixes a bug in local execution that could cause some missing rows in RETURNING
+
+* allow distributing aggregate definitions to workers
+
+* Drop support for deprecated real-time and router executors
+
+* Include a missing fmgr.h, to hopefully fix build failure on RHEL 
+
+* Fixes a bug when view is used in modify statements.
+
+* Fixes a bug that caused maintenance daemon to fail on standby nodes
+
+* refactor some of hard coded values in citus gucs
+
+* Disallow distributed function creation when replication_model is 'statement'
+
+* Revoke usage from the citus schema from public
 
 * Fixes a memory leak in adaptive executor when query returns many columns
 
-* Fixes an issue that caused failures in RHEL 6 builds
+* Fixes a bug preventing refresh materialized view
 
-* Fixes queries with repartition joins and group by unique column
+* Support subqueries in HAVING
 
-* Improves CTE/Subquery performance by pruning intermediate result broadcasting
-
-* Removes `citus.worker_list_file` GUC
-
-* Revokes usage from the citus schema from public
+* remove pg10 from pg upgrade tests
 
 ### citus v9.0.1 (October 25, 2019) ###
 

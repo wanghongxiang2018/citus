@@ -320,7 +320,6 @@ FindShardIntervalIndex(Datum searchedValue, DistTableCacheEntry *cacheEntry)
 	bool useBinarySearch = (partitionMethod != DISTRIBUTE_BY_HASH ||
 							!cacheEntry->hasUniformHashDistribution);
 	int shardIndex = INVALID_SHARD_INDEX;
-	Oid shardIntervalCollation = cacheEntry->partitionColumn->varcollid;
 
 	if (shardCount == 0)
 	{
@@ -333,6 +332,7 @@ FindShardIntervalIndex(Datum searchedValue, DistTableCacheEntry *cacheEntry)
 		{
 			Assert(compareFunction != NULL);
 
+			Oid shardIntervalCollation = cacheEntry->partitionColumn->varcollid;
 			shardIndex = SearchCachedShardInterval(searchedValue, shardIntervalCache,
 												   shardCount, shardIntervalCollation,
 												   compareFunction);
@@ -376,6 +376,7 @@ FindShardIntervalIndex(Datum searchedValue, DistTableCacheEntry *cacheEntry)
 	{
 		Assert(compareFunction != NULL);
 
+		Oid shardIntervalCollation = cacheEntry->partitionColumn->varcollid;
 		shardIndex = SearchCachedShardInterval(searchedValue, shardIntervalCache,
 											   shardCount, shardIntervalCollation,
 											   compareFunction);

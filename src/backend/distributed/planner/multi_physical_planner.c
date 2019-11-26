@@ -2470,16 +2470,27 @@ QueryPushdownTaskCreate(Query *originalQuery, int shardIndex,
 bool
 CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 {
-	bool coPartitionedTables = true;
 	DistTableCacheEntry *firstTableCache = DistributedTableCacheEntry(firstRelationId);
 	DistTableCacheEntry *secondTableCache = DistributedTableCacheEntry(secondRelationId);
+
 	ShardInterval **sortedFirstIntervalArray = firstTableCache->sortedShardIntervalArray;
 	ShardInterval **sortedSecondIntervalArray =
 		secondTableCache->sortedShardIntervalArray;
 	uint32 firstListShardCount = firstTableCache->shardIntervalArrayLength;
 	uint32 secondListShardCount = secondTableCache->shardIntervalArrayLength;
 	FmgrInfo *comparisonFunction = firstTableCache->shardIntervalCompareFunction;
-	Oid collation = firstTableCache->partitionColumn->varcollid;
+
+	/* reference tables are always & only copartitioned with reference tables */
+	if (firstTableCache->partitionMethod == DISTRIBUTE_BY_NONE &&
+		secondTableCache->partitionMethod == DISTRIBUTE_BY_NONE)
+	{
+		return true;
+	}
+	else if (firstTableCache->partitionMethod == DISTRIBUTE_BY_NONE ||
+			 secondTableCache->partitionMethod == DISTRIBUTE_BY_NONE)
+	{
+		return false;
+	}
 
 	if (firstListShardCount != secondListShardCount)
 	{
@@ -2521,6 +2532,7 @@ CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 	/*
 	 * Don't compare unequal types
 	 */
+	Oid collation = firstTableCache->partitionColumn->varcollid;
 	if (firstTableCache->partitionColumn->vartype !=
 		secondTableCache->partitionColumn->vartype ||
 		collation != secondTableCache->partitionColumn->varcollid)
@@ -2548,12 +2560,11 @@ CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 		if (!shardIntervalsEqual || !CoPlacedShardIntervals(firstInterval,
 															secondInterval))
 		{
-			coPartitionedTables = false;
-			break;
+			return false;
 		}
 	}
 
-	return coPartitionedTables;
+	return true;
 }
 
 
@@ -3707,8 +3718,6 @@ FindRangeTableFragmentsList(List *rangeTableFragmentsList, int tableId)
 static bool
 JoinPrunable(RangeTableFragment *leftFragment, RangeTableFragment *rightFragment)
 {
-	bool joinPrunable = false;
-
 	/*
 	 * If both range tables are remote queries, we then have a hash repartition
 	 * join. In that case, we can just prune away this join if left and right
@@ -3754,10 +3763,10 @@ JoinPrunable(RangeTableFragment *leftFragment, RangeTableFragment *rightFragment
 									leftString->data, rightString->data)));
 		}
 
-		joinPrunable = true;
+		return true;
 	}
 
-	return joinPrunable;
+	return false;
 }
 
 
@@ -3790,9 +3799,11 @@ FragmentInterval(RangeTableFragment *fragment)
 bool
 ShardIntervalsOverlap(ShardInterval *firstInterval, ShardInterval *secondInterval)
 {
-	bool nonOverlap = false;
 	DistTableCacheEntry *intervalRelation =
 		DistributedTableCacheEntry(firstInterval->relationId);
+
+	Assert(intervalRelation->partitionMethod != DISTRIBUTE_BY_NONE);
+
 	FmgrInfo *comparisonFunction = intervalRelation->shardIntervalCompareFunction;
 	Oid collation = intervalRelation->partitionColumn->varcollid;
 
@@ -3820,11 +3831,11 @@ ShardIntervalsOverlap(ShardInterval *firstInterval, ShardInterval *secondInterva
 
 		if (firstComparison < 0 || secondComparison < 0)
 		{
-			nonOverlap = true;
+			return false;
 		}
 	}
 
-	return (!nonOverlap);
+	return true;
 }
 
 

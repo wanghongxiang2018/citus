@@ -262,10 +262,6 @@ CREATE COLLATION test_pg12.case_insensitive (
 );
 $$);
 
-select worker_hash('asdf'::text) asdf, worker_hash('aSdf'::text) "aSdf",
-	worker_hash('asdf'::text collate case_insensitive) "Casdf",
-	worker_hash('aSdf'::text collate case_insensitive) "CaSdf";
-
 CREATE TABLE col_test (
 	id text collate case_insensitive,
 	val text collate case_insensitive,

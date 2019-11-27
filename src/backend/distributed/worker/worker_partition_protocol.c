@@ -1212,6 +1212,9 @@ RangePartitionId(Datum partitionValue, Oid partitionCollation, const void *conte
  * using hash partitioning. More specifically, the function returns zero if the
  * given data value is null. If not, the function follows the exact same approach
  * as Citus distributed planner uses.
+ *
+ * partitionCollation is unused, as we do not support non deterministic collations
+ * for hash distributed tables.
  */
 static uint32
 HashPartitionId(Datum partitionValue, Oid partitionCollation, const void *context)
@@ -1222,7 +1225,8 @@ HashPartitionId(Datum partitionValue, Oid partitionCollation, const void *contex
 	ShardInterval **syntheticShardIntervalArray =
 		hashPartitionContext->syntheticShardIntervalArray;
 	FmgrInfo *comparisonFunction = hashPartitionContext->comparisonFunction;
-	Datum hashDatum = FunctionCall1Coll(hashFunction, partitionCollation, partitionValue);
+	Datum hashDatum = FunctionCall1Coll(hashFunction, DEFAULT_COLLATION_OID,
+										partitionValue);
 	int32 hashResult = 0;
 	uint32 hashPartitionId = 0;
 
@@ -1242,7 +1246,7 @@ HashPartitionId(Datum partitionValue, Oid partitionCollation, const void *contex
 	{
 		hashPartitionId =
 			SearchCachedShardInterval(hashDatum, syntheticShardIntervalArray,
-									  partitionCount, partitionCollation,
+									  partitionCount, InvalidOid,
 									  comparisonFunction);
 	}
 

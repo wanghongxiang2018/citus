@@ -378,14 +378,6 @@ $$);
  
 (1 row)
 
-select worker_hash('asdf'::text) asdf, worker_hash('aSdf'::text) "aSdf",
-	worker_hash('asdf'::text collate case_insensitive) "Casdf",
-	worker_hash('aSdf'::text collate case_insensitive) "CaSdf";
-    asdf    |    aSdf    |   Casdf    |   CaSdf    
-------------+------------+------------+------------
- -847063115 | 1555703968 | 2056681597 | 2056681597
-(1 row)
-
 CREATE TABLE col_test (
 	id text collate case_insensitive,
 	val text collate case_insensitive,
@@ -394,12 +386,7 @@ CREATE TABLE col_test (
 insert into col_test values
 	('asdF','vaLue', 1), ('Asdf','vAlue', 2), ('asDF','valUE', 3);
 select create_distributed_table('col_test', 'id');
-NOTICE:  Copying data from local table...
- create_distributed_table 
---------------------------
- 
-(1 row)
-
+ERROR:  Hash distributed partition columns may not use a non deterministic collation
 insert into col_test values
 	('aSdf','vALue', 4), ('AsDf','vAluE', 5), ('asdF','value', 6);
 select count(*)

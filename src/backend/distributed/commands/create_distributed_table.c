@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * create_distributed_relation.c
+ * create_distributed_table.c
  *	  Routines relation to the creation of distributed relations.
  *
  * Copyright (c) Citus Data, Inc.
@@ -551,10 +551,12 @@ ColocationIdForNewTable(Oid relationId, Var *distributionColumn,
 		 * can be sure that there will no modifications on the colocation table
 		 * until this transaction is committed.
 		 */
+		Assert(distributionMethod == DISTRIBUTE_BY_HASH);
+
 		Relation pgDistColocation = heap_open(DistColocationRelationId(), ExclusiveLock);
 
 		Oid distributionColumnType = distributionColumn->vartype;
-		Oid distributionColumnCollation = distributionColumn->varcollid;
+		Oid distributionColumnCollation = get_typcollation(distributionColumnType);
 		bool createdColocationGroup = false;
 
 		if (pg_strncasecmp(colocateWithTableName, "default", NAMEDATALEN) == 0)
@@ -688,6 +690,16 @@ EnsureRelationCanBeDistributed(Oid relationId, Var *distributionColumn,
 							errdetail("Partition column types must have a hash function "
 									  "defined to use hash partitioning.")));
 		}
+
+#if PG_VERSION_NUM >= 120000
+		if (distributionColumn->varcollid != InvalidOid &&
+			!get_collation_isdeterministic(distributionColumn->varcollid))
+		{
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("Hash distributed partition columns may not use "
+								   "a non deterministic collation")));
+		}
+#endif
 	}
 	else if (distributionMethod == DISTRIBUTE_BY_RANGE)
 	{

@@ -65,6 +65,14 @@ s/"(ref_table_[0-9]_|ref_table_[0-9]_value_fkey_)[0-9]+"/"\1xxxxxxx"/g
 /^LINE [0-9]+:.*$/d
 /^ *\^$/d
 
+# PG 11 and PG 12 differs in terms of CTE inlining
+# so shadow anything related to subplan ids
+s/generating subplan [0-9]+\_[0-9]+/generating subplan XXX\_XX/g
+s/for CTE/for subquery/g
+s/Plan [0-9]+/Plan xx/g
+s/read_intermediate_result(.*)/read_intermediate_result(xx)/g
+s/Subplan [0-9]+\_[0-9]+/Subplan XX\_XX/g
+
 # pg12 changes
 s/Partitioned table "/Table "/g
 s/\) TABLESPACE pg_default$/\)/g

@@ -154,9 +154,6 @@ static List * get_all_actual_clauses(List *restrictinfo_list);
 static int CompareInsertValuesByShardId(const void *leftElement,
 										const void *rightElement);
 static uint64 GetAnchorShardId(List *relationShardList);
-static List * TargetShardIntervalForFastPathQuery(Query *query,
-												  Const **partitionValueConst,
-												  bool *isMultiShardQuery);
 static List * SingleShardSelectTaskList(Query *query, uint64 jobId,
 										List *relationShardList, List *placementList,
 										uint64 shardId);
@@ -2241,7 +2238,7 @@ GetAnchorShardId(List *prunedShardIntervalListList)
  * Also set the outgoing partition column value if requested via
  * partitionValueConst
  */
-static List *
+List *
 TargetShardIntervalForFastPathQuery(Query *query, Const **partitionValueConst,
 									bool *isMultiShardQuery)
 {

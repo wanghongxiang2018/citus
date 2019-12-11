@@ -202,6 +202,10 @@ FastPathRouterQuery(Query *query)
 
 	/* we don't want to deal with append/range distributed tables */
 	Oid distributedTableId = rangeTableEntry->relid;
+	if (!IsDistributedTable(distributedTableId))
+	{
+		return false;
+	}
 	DistTableCacheEntry *cacheEntry = DistributedTableCacheEntry(distributedTableId);
 	if (!(cacheEntry->partitionMethod == DISTRIBUTE_BY_HASH ||
 		  cacheEntry->partitionMethod == DISTRIBUTE_BY_NONE))

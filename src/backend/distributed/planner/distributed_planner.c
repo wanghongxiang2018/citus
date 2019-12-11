@@ -105,6 +105,8 @@ static void ResetPlannerRestrictionContext(
 	PlannerRestrictionContext *plannerRestrictionContext);
 static bool HasUnresolvedExternParamsWalker(Node *expression, ParamListInfo boundParams);
 static bool IsLocalReferenceTableJoin(Query *parse, List *rangeTableList);
+static bool
+LocalFastPath(Query *parse, List *rangeTableList);
 static bool QueryIsNotSimpleSelect(Node *node);
 static bool UpdateReferenceTablesWithShard(Node *node, void *context);
 
@@ -135,6 +137,11 @@ distributed_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			 * reference table names with shard tables names in the query, so
 			 * we can use the standard_planner for planning it locally.
 			 */
+			needsDistributedPlanning = false;
+			UpdateReferenceTablesWithShard((Node *) parse, NULL);
+		}
+		else if (LocalFastPath(parse, rangeTableList))
+		{
 			needsDistributedPlanning = false;
 			UpdateReferenceTablesWithShard((Node *) parse, NULL);
 		}
@@ -1907,8 +1914,24 @@ HasUnresolvedExternParamsWalker(Node *expression, ParamListInfo boundParams)
 									  boundParams);
 	}
 }
+static bool
+LocalFastPath(Query *parse, List *rangeTableList)
+{
+	if (!FastPathRouterQuery(parse))
+		return false;
 
+	Const **partitionValueConst = NULL;
+	bool isMultiShardQuery = false;
+	List *shardIntervalList =
+		TargetShardIntervalForFastPathQuery(parse, partitionValueConst,
+											&isMultiShardQuery);
 
+	ShardInterval *sh = linitial(shardIntervalList);
+
+	ShardPlacement *shp = FindShardPlacementOnGroup(GetLocalGroupId(), sh->shardId);
+
+	return shp != NULL ? true : false;
+}
 /*
  * IsLocalReferenceTableJoin returns if the given query is a join between
  * reference tables and local tables.
@@ -2046,7 +2069,7 @@ UpdateReferenceTablesWithShard(Node *node, void *context)
 	DistTableCacheEntry *cacheEntry = DistributedTableCacheEntry(relationId);
 	if (cacheEntry->partitionMethod != DISTRIBUTE_BY_NONE)
 	{
-		return false;
+		//return false;
 	}
 
 	ShardInterval *shardInterval = cacheEntry->sortedShardIntervalArray[0];

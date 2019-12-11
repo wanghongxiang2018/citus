@@ -27,7 +27,9 @@
 
 extern bool EnableRouterExecution;
 extern bool EnableFastPathRouterPlanner;
-
+extern List * TargetShardIntervalForFastPathQuery(Query *query,
+												  Const **partitionValueConst,
+												  bool *isMultiShardQuery);
 extern DistributedPlan * CreateRouterPlan(Query *originalQuery, Query *query,
 										  PlannerRestrictionContext *
 										  plannerRestrictionContext);

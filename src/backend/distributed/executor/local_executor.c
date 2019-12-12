@@ -144,13 +144,6 @@ ExecuteLocalTaskList(CitusScanState *scanState, List *taskList)
 
 		const char *shardQueryString = task->queryString;
 		Query *shardQuery = ParseQueryString(shardQueryString, parameterTypes, numParams);
-
-		/*
-		 * We should not consider using CURSOR_OPT_FORCE_DISTRIBUTED in case of
-		 * intermediate results in the query. That'd trigger ExecuteLocalTaskPlan()
-		 * go through the distributed executor, which we do not want since the
-		 * query is already known to be local.
-		 */
 		int cursorOptions = 0;
 
 		/*

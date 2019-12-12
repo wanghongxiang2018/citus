@@ -1151,20 +1151,6 @@ static DistributedSubPlan *
 CreateDistributedSubPlan(uint32 subPlanId, Query *subPlanQuery)
 {
 	int cursorOptions = 0;
-
-	if (ContainsReadIntermediateResultFunction((Node *) subPlanQuery))
-	{
-		/*
-		 * Make sure we go through distributed planning if there are
-		 * read_intermediate_result calls, even if there are no distributed
-		 * tables in the query anymore.
-		 *
-		 * We cannot perform this check in the planner itself, since that
-		 * would also cause the workers to attempt distributed planning.
-		 */
-		cursorOptions |= CURSOR_OPT_FORCE_DISTRIBUTED;
-	}
-
 	DistributedSubPlan *subPlan = CitusMakeNode(DistributedSubPlan);
 	subPlan->plan = planner(subPlanQuery, cursorOptions, NULL);
 	subPlan->subPlanId = subPlanId;

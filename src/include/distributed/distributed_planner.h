@@ -30,9 +30,6 @@
 #define INVALID_TASK_ID 0
 #define MULTI_TASK_QUERY_INFO_OFF 0  /* do not log multi-task queries */
 
-#define CURSOR_OPT_FORCE_DISTRIBUTED 0x080000
-
-
 /* level of planner calls */
 extern int PlannerLevel;
 

@@ -122,14 +122,7 @@ distributed_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	List *rangeTableList = ExtractRangeTableEntryList(parse);
 	int rteIdCounter = 1;
 
-	if (cursorOptions & CURSOR_OPT_FORCE_DISTRIBUTED)
-	{
-		/* this cursor flag could only be set when Citus has been loaded */
-		Assert(CitusHasBeenLoaded());
-
-		needsDistributedPlanning = true;
-	}
-	else if (CitusHasBeenLoaded())
+	if (CitusHasBeenLoaded())
 	{
 		if (IsLocalReferenceTableJoin(parse, rangeTableList))
 		{

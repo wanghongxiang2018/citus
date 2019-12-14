@@ -10,6 +10,7 @@
  */
 #include "postgres.h"
 
+#include "distributed/colocation_utils.h"
 #include "distributed/distributed_planner.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/multi_logical_planner.h"
@@ -590,8 +591,8 @@ ReferenceRelationCount(RelationRestrictionContext *restrictionContext)
  * EquivalenceListContainsRelationsEquality gets a list of attributed equivalence
  * list and a relation restriction context. The function first generates a common
  * equivalence class out of the attributeEquivalenceList. Later, the function checks
- * whether all the relations exists in the common equivalence class.
- *
+ * whether all the relations exists in the common equivalence class and whether
+ * they are co-located.
  */
 bool
 EquivalenceListContainsRelationsEquality(List *attributeEquivalenceList,
@@ -600,6 +601,7 @@ EquivalenceListContainsRelationsEquality(List *attributeEquivalenceList,
 	ListCell *commonEqClassCell = NULL;
 	ListCell *relationRestrictionCell = NULL;
 	Relids commonRteIdentities = NULL;
+	int initialColocationId = INVALID_COLOCATION_ID;
 
 	/*
 	 * In general we're trying to expand existing the equivalence classes to find a
@@ -626,11 +628,25 @@ EquivalenceListContainsRelationsEquality(List *attributeEquivalenceList,
 		RelationRestriction *relationRestriction =
 			(RelationRestriction *) lfirst(relationRestrictionCell);
 		int rteIdentity = GetRTEIdentity(relationRestriction->rte);
+		int colocationId = TableColocationId(relationRestriction->relationId);
 
 		/* we shouldn't check for the equality of reference tables */
 		if (PartitionMethod(relationRestriction->relationId) == DISTRIBUTE_BY_NONE)
 		{
 			continue;
+		}
+
+		if (initialColocationId == INVALID_COLOCATION_ID)
+		{
+			initialColocationId = colocationId;
+		}
+		else if (colocationId != initialColocationId)
+		{
+			/*
+			 * For our purpose, distribution columns in non-colocated tables are
+			 * by definition not equal.
+			 */
+			return false;
 		}
 
 		if (!bms_is_member(rteIdentity, commonRteIdentities))

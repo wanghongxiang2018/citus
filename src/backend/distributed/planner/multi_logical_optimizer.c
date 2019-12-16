@@ -29,6 +29,7 @@
 #include "distributed/colocation_utils.h"
 #include "distributed/extended_op_node_utils.h"
 #include "distributed/function_utils.h"
+#include "distributed/listutils.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/multi_logical_optimizer.h"
 #include "distributed/multi_logical_planner.h"
@@ -59,19 +60,19 @@
 /* Config variable managed via guc.c */
 int LimitClauseRowFetchCount = -1; /* number of rows to fetch from each task */
 double CountDistinctErrorRate = 0.0; /* precision of count(distinct) approximate */
-
+int CoordinatorAggregationStrategy = COORDINATOR_AGGREGATION_DISABLED;
 
 typedef struct MasterAggregateWalkerContext
 {
+	const ExtendedOpNodeProperties *extendedOpNodeProperties;
 	AttrNumber columnId;
-	bool pullDistinctColumns;
 } MasterAggregateWalkerContext;
 
 typedef struct WorkerAggregateWalkerContext
 {
+	const ExtendedOpNodeProperties *extendedOpNodeProperties;
 	List *expressionList;
 	bool createGroupByClause;
-	bool pullDistinctColumns;
 } WorkerAggregateWalkerContext;
 
 
@@ -267,6 +268,7 @@ static Const * MakeIntegerConst(int32 integerValue);
 static Const * MakeIntegerConstInt64(int64 integerValue);
 
 /* Local functions forward declarations for aggregate expression checks */
+static bool RequiresIntermediateRowPullUp(MultiNode *logicalPlanNode);
 static void ErrorIfContainsUnsupportedAggregate(MultiNode *logicalPlanNode);
 static void ErrorIfUnsupportedArrayAggregate(Aggref *arrayAggregateExpression);
 static void ErrorIfUnsupportedJsonAggregate(AggregateType type,
@@ -315,9 +317,13 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 	ListCell *collectNodeCell = NULL;
 	ListCell *tableNodeCell = NULL;
 	MultiNode *logicalPlanNode = (MultiNode *) multiLogicalPlan;
+	bool requiresIntermediateRowPullUp = RequiresIntermediateRowPullUp(logicalPlanNode);
 
-	/* check that we can optimize aggregates in the plan */
-	ErrorIfContainsUnsupportedAggregate(logicalPlanNode);
+	if (!requiresIntermediateRowPullUp)
+	{
+		/* check that we can optimize aggregates in the plan */
+		ErrorIfContainsUnsupportedAggregate(logicalPlanNode);
+	}
 
 	/*
 	 * If a select node exists, we use the idempower property to split the node
@@ -379,6 +385,8 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 
 	ExtendedOpNodeProperties extendedOpNodeProperties = BuildExtendedOpNodeProperties(
 		extendedOpNode);
+
+	extendedOpNodeProperties.pullUpIntermediateRows = requiresIntermediateRowPullUp;
 
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);
@@ -1365,8 +1373,8 @@ MasterExtendedOpNode(MultiExtendedOp *originalOpNode,
 	MasterAggregateWalkerContext *walkerContext = palloc0(
 		sizeof(MasterAggregateWalkerContext));
 
+	walkerContext->extendedOpNodeProperties = extendedOpNodeProperties;
 	walkerContext->columnId = 1;
-	walkerContext->pullDistinctColumns = extendedOpNodeProperties->pullDistinctColumns;
 
 	/* iterate over original target entries */
 	foreach(targetEntryCell, targetEntryList)
@@ -1494,16 +1502,55 @@ static Expr *
 MasterAggregateExpression(Aggref *originalAggregate,
 						  MasterAggregateWalkerContext *walkerContext)
 {
-	AggregateType aggregateType = GetAggregateType(originalAggregate);
-	Expr *newMasterExpression = NULL;
 	const uint32 masterTableId = 1;  /* one table on the master node */
 	const Index columnLevelsUp = 0;  /* normal column */
 	const AttrNumber argumentId = 1; /* our aggregates have single arguments */
+	AggregateType aggregateType = GetAggregateType(originalAggregate);
+	Expr *newMasterExpression = NULL;
 	AggClauseCosts aggregateCosts;
 
-	if (aggregateType == AGGREGATE_COUNT && originalAggregate->aggdistinct &&
-		CountDistinctErrorRate == DISABLE_DISTINCT_APPROXIMATION &&
-		walkerContext->pullDistinctColumns)
+	if (walkerContext->extendedOpNodeProperties->pullUpIntermediateRows)
+	{
+		Aggref *aggregate = (Aggref *) copyObject(originalAggregate);
+
+		TargetEntry *targetEntry;
+		foreach_ptr(targetEntry, aggregate->args)
+		{
+			targetEntry->expr = (Expr *)
+								makeVar(masterTableId, walkerContext->columnId,
+										exprType((Node *) targetEntry->expr),
+										exprTypmod((Node *) targetEntry->expr),
+										exprCollation((Node *) targetEntry->expr),
+										columnLevelsUp);
+			walkerContext->columnId++;
+		}
+
+		aggregate->aggdirectargs = NIL;
+		Expr *directarg;
+		foreach_ptr(directarg, originalAggregate->aggdirectargs)
+		{
+			Var *var = makeVar(masterTableId, walkerContext->columnId,
+							   exprType((Node *) directarg),
+							   exprTypmod((Node *) directarg),
+							   exprCollation((Node *) directarg),
+							   columnLevelsUp);
+			aggregate->aggdirectargs = lappend(aggregate->aggdirectargs, var);
+			walkerContext->columnId++;
+		}
+
+		if (aggregate->aggfilter)
+		{
+			aggregate->aggfilter = (Expr *)
+								   makeVar(masterTableId, walkerContext->columnId,
+										   BOOLOID, -1, InvalidOid, columnLevelsUp);
+			walkerContext->columnId++;
+		}
+
+		newMasterExpression = (Expr *) aggregate;
+	}
+	else if (aggregateType == AGGREGATE_COUNT && originalAggregate->aggdistinct &&
+			 CountDistinctErrorRate == DISABLE_DISTINCT_APPROXIMATION &&
+			 walkerContext->extendedOpNodeProperties->pullDistinctColumns)
 	{
 		Aggref *aggregate = (Aggref *) copyObject(originalAggregate);
 		List *varList = pull_var_clause_default((Node *) aggregate);
@@ -1819,7 +1866,7 @@ MasterAggregateExpression(Aggref *originalAggregate,
 
 		newMasterExpression = (Expr *) unionAggregate;
 	}
-	else if (aggregateType == AGGREGATE_CUSTOM)
+	else if (aggregateType == AGGREGATE_CUSTOM_COMBINE)
 	{
 		HeapTuple aggTuple =
 			SearchSysCache1(AGGFNOID, ObjectIdGetDatum(originalAggregate->aggfnoid));
@@ -2087,8 +2134,17 @@ WorkerExtendedOpNode(MultiExtendedOp *originalOpNode,
 	/* targetProjectionNumber starts from 1 */
 	queryTargetList.targetProjectionNumber = 1;
 
-	/* worker query always include all the group by entries in the query */
-	queryGroupClause.groupClauseList = copyObject(originalGroupClauseList);
+	/*
+	 * only push down grouping to worker query when pushing down aggregates
+	 */
+	if (extendedOpNodeProperties->pullUpIntermediateRows)
+	{
+		queryGroupClause.groupClauseList = NIL;
+	}
+	else
+	{
+		queryGroupClause.groupClauseList = copyObject(originalGroupClauseList);
+	}
 
 	/*
 	 * nextSortGroupRefIndex is used by group by, window and order by clauses.
@@ -2196,8 +2252,8 @@ ProcessTargetListForWorkerQuery(List *targetEntryList,
 	WorkerAggregateWalkerContext *workerAggContext =
 		palloc0(sizeof(WorkerAggregateWalkerContext));
 
+	workerAggContext->extendedOpNodeProperties = extendedOpNodeProperties;
 	workerAggContext->expressionList = NIL;
-	workerAggContext->pullDistinctColumns = extendedOpNodeProperties->pullDistinctColumns;
 
 	/* iterate over original target entries */
 	foreach(targetEntryCell, targetEntryList)
@@ -2271,8 +2327,9 @@ ProcessHavingClauseForWorkerQuery(Node *originalHavingQual,
 
 	WorkerAggregateWalkerContext *workerAggContext = palloc0(
 		sizeof(WorkerAggregateWalkerContext));
+
+	workerAggContext->extendedOpNodeProperties = extendedOpNodeProperties;
 	workerAggContext->expressionList = NIL;
-	workerAggContext->pullDistinctColumns = extendedOpNodeProperties->pullDistinctColumns;
 	workerAggContext->createGroupByClause = false;
 
 	WorkerAggregateWalker(originalHavingQual, workerAggContext);
@@ -2773,13 +2830,37 @@ static List *
 WorkerAggregateExpressionList(Aggref *originalAggregate,
 							  WorkerAggregateWalkerContext *walkerContext)
 {
-	AggregateType aggregateType = GetAggregateType(originalAggregate);
 	List *workerAggregateList = NIL;
+
+	if (walkerContext->extendedOpNodeProperties->pullUpIntermediateRows)
+	{
+		TargetEntry *targetEntry;
+		foreach_ptr(targetEntry, originalAggregate->args)
+		{
+			workerAggregateList = lappend(workerAggregateList, targetEntry->expr);
+		}
+
+		Expr *directarg;
+		foreach_ptr(directarg, originalAggregate->aggdirectargs)
+		{
+			workerAggregateList = lappend(workerAggregateList, directarg);
+		}
+
+		if (originalAggregate->aggfilter)
+		{
+			workerAggregateList = lappend(workerAggregateList,
+										  originalAggregate->aggfilter);
+		}
+
+		return workerAggregateList;
+	}
+
+	AggregateType aggregateType = GetAggregateType(originalAggregate);
 	AggClauseCosts aggregateCosts;
 
 	if (aggregateType == AGGREGATE_COUNT && originalAggregate->aggdistinct &&
 		CountDistinctErrorRate == DISABLE_DISTINCT_APPROXIMATION &&
-		walkerContext->pullDistinctColumns)
+		walkerContext->extendedOpNodeProperties->pullDistinctColumns)
 	{
 		Aggref *aggregate = (Aggref *) copyObject(originalAggregate);
 		List *columnList = pull_var_clause_default((Node *) aggregate);
@@ -2888,7 +2969,7 @@ WorkerAggregateExpressionList(Aggref *originalAggregate,
 		workerAggregateList = lappend(workerAggregateList, sumAggregate);
 		workerAggregateList = lappend(workerAggregateList, countAggregate);
 	}
-	else if (aggregateType == AGGREGATE_CUSTOM)
+	else if (aggregateType == AGGREGATE_CUSTOM_COMBINE)
 	{
 		HeapTuple aggTuple =
 			SearchSysCache1(AGGFNOID, ObjectIdGetDatum(originalAggregate->aggfnoid));
@@ -2997,10 +3078,17 @@ GetAggregateType(Aggref *aggregateExpression)
 
 	if (AggregateEnabledCustom(aggregateExpression))
 	{
-		return AGGREGATE_CUSTOM;
+		return AGGREGATE_CUSTOM_COMBINE;
 	}
 
-	ereport(ERROR, (errmsg("unsupported aggregate function %s", aggregateProcName)));
+	if (CoordinatorAggregationStrategy == COORDINATOR_AGGREGATION_DISABLED)
+	{
+		ereport(ERROR, (errmsg("unsupported aggregate function %s", aggregateProcName)));
+	}
+	else
+	{
+		return AGGREGATE_CUSTOM_ROW_GATHER;
+	}
 }
 
 
@@ -3315,6 +3403,55 @@ MakeIntegerConstInt64(int64 integerValue)
 
 
 /*
+ * RequiresIntermediateRowPullUp checks for if any aggregates cannot be pushed down.
+ */
+static bool
+RequiresIntermediateRowPullUp(MultiNode *logicalPlanNode)
+{
+	if (CoordinatorAggregationStrategy == COORDINATOR_AGGREGATION_DISABLED)
+	{
+		return false;
+	}
+
+	List *opNodeList = FindNodesOfType(logicalPlanNode, T_MultiExtendedOp);
+	MultiExtendedOp *extendedOpNode = (MultiExtendedOp *) linitial(opNodeList);
+
+	List *targetList = extendedOpNode->targetList;
+
+	/*
+	 * PVC_REJECT_PLACEHOLDERS is implicit if PVC_INCLUDE_PLACEHOLDERS isn't
+	 * specified.
+	 */
+	List *expressionList = pull_var_clause((Node *) targetList, PVC_INCLUDE_AGGREGATES |
+										   PVC_INCLUDE_WINDOWFUNCS);
+
+	ListCell *expressionCell = NULL;
+	foreach(expressionCell, expressionList)
+	{
+		Node *expression = (Node *) lfirst(expressionCell);
+
+		/* only consider aggregate expressions */
+		if (!IsA(expression, Aggref))
+		{
+			continue;
+		}
+
+		/* GetAggregateType errors out on unsupported aggregate types */
+		Aggref *aggregateExpression = (Aggref *) expression;
+		AggregateType aggregateType = GetAggregateType(aggregateExpression);
+		Assert(aggregateType != AGGREGATE_INVALID_FIRST);
+
+		if (aggregateType == AGGREGATE_CUSTOM_ROW_GATHER)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+/*
  * ErrorIfContainsUnsupportedAggregate extracts aggregate expressions from the
  * logical plan, walks over them and uses helper functions to check if we can
  * transform these aggregate expressions and push them down to worker nodes.
@@ -3443,6 +3580,12 @@ ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
 	bool distinctSupported = true;
 
 	AggregateType aggregateType = GetAggregateType(aggregateExpression);
+
+	/* If we're aggregating on coordinator, this becomes simple. */
+	if (aggregateType == AGGREGATE_CUSTOM_ROW_GATHER)
+	{
+		return;
+	}
 
 	/*
 	 * We partially support count(distinct) in subqueries, other distinct aggregates in

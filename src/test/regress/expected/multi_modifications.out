@@ -1301,7 +1301,7 @@ DELETE FROM summary_table WHERE (
     SELECT (select action_statement from information_schema.triggers)
     FROM pg_catalog.pg_statio_sys_sequences
 ) = null;
-ERROR:  relation pg_namespace is not distributed
+ERROR:  more than one row returned by a subquery used as an expression
 DELETE FROM summary_table WHERE id < (
     SELECT 0 FROM pg_dist_node
 );

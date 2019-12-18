@@ -146,5 +146,22 @@ set role notsuper;
 select array_collect_sort(val) from aggdata;
 reset role;
 
+-- Test aggregation on coordinator
+set citus.coordinator_aggregation_strategy to 'row-gather';
+
+select key, first(val order by id), last(val order by id)
+from aggdata group by key order by key;
+
+select key, sum2(distinct val), sum2_strict(distinct val) from aggdata group by key order by key;
+select key, sum2(val order by valf), sum2_strict(val order by valf) from aggdata group by key order by key;
+select string_agg(distinct floor(val/2)::text, '|' order by floor(val/2)::text) from aggdata;
+select string_agg(distinct floor(val/2)::text, '|' order by floor(val/2)::text) filter (where val < 5) from aggdata;
+select mode() within group (order by floor(val/2)) from aggdata;
+select percentile_cont(0.5) within group(order by valf) from aggdata;
+select floor(val/2), corr(valf, valf + val) from aggdata group by floor(val/2) order by 1;
+select array_agg(val order by valf) from aggdata;
+
+set citus.coordinator_aggregation_strategy to 'disabled';
+
 set client_min_messages to error;
 drop schema aggregate_support cascade;

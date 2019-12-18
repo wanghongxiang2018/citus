@@ -27,6 +27,7 @@
 #include "distributed/citus_nodes.h"
 #include "distributed/citus_ruleutils.h"
 #include "distributed/colocation_utils.h"
+#include "distributed/errormessage.h"
 #include "distributed/extended_op_node_utils.h"
 #include "distributed/function_utils.h"
 #include "distributed/listutils.h"
@@ -269,12 +270,17 @@ static Const * MakeIntegerConstInt64(int64 integerValue);
 
 /* Local functions forward declarations for aggregate expression checks */
 static bool RequiresIntermediateRowPullUp(MultiNode *logicalPlanNode);
-static void ErrorIfContainsUnsupportedAggregate(MultiNode *logicalPlanNode);
-static void ErrorIfUnsupportedArrayAggregate(Aggref *arrayAggregateExpression);
-static void ErrorIfUnsupportedJsonAggregate(AggregateType type,
-											Aggref *aggregateExpression);
-static void ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
-												MultiNode *logicalPlanNode);
+static DeferredErrorMessage * DeferErrorIfContainsUnsupportedAggregate(
+	MultiNode *logicalPlanNode);
+static DeferredErrorMessage * DeferErrorIfUnsupportedArrayAggregate(
+	Aggref *arrayAggregateExpression);
+static DeferredErrorMessage * DeferErrorIfUnsupportedJsonAggregate(AggregateType type,
+																   Aggref *
+																   aggregateExpression);
+static DeferredErrorMessage * DeferErrorIfUnsupportedAggregateDistinct(
+	Aggref *aggregateExpression,
+	MultiNode *
+	logicalPlanNode);
 static Var * AggregateDistinctColumn(Aggref *aggregateExpression);
 static bool TablePartitioningSupportsDistinct(List *tableNodeList,
 											  MultiExtendedOp *opNode,
@@ -319,10 +325,23 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 	MultiNode *logicalPlanNode = (MultiNode *) multiLogicalPlan;
 	bool requiresIntermediateRowPullUp = RequiresIntermediateRowPullUp(logicalPlanNode);
 
+
 	if (!requiresIntermediateRowPullUp)
 	{
-		/* check that we can optimize aggregates in the plan */
-		ErrorIfContainsUnsupportedAggregate(logicalPlanNode);
+		DeferredErrorMessage *error =
+			DeferErrorIfContainsUnsupportedAggregate(logicalPlanNode);
+
+		if (error != NULL)
+		{
+			if (CoordinatorAggregationStrategy == COORDINATOR_AGGREGATION_DISABLED)
+			{
+				RaiseDeferredError(error, ERROR);
+			}
+			else
+			{
+				requiresIntermediateRowPullUp = true;
+			}
+		}
 	}
 
 	/*
@@ -401,7 +420,14 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 		MultiTable *tableNode = (MultiTable *) lfirst(tableNodeCell);
 		if (tableNode->relationId == SUBQUERY_RELATION_ID)
 		{
-			ErrorIfContainsUnsupportedAggregate((MultiNode *) tableNode);
+			DeferredErrorMessage *error =
+				DeferErrorIfContainsUnsupportedAggregate((MultiNode *) tableNode);
+
+			if (error != NULL)
+			{
+				RaiseDeferredError(error, ERROR);
+			}
+
 			TransformSubqueryNode(tableNode);
 		}
 	}
@@ -3452,14 +3478,14 @@ RequiresIntermediateRowPullUp(MultiNode *logicalPlanNode)
 
 
 /*
- * ErrorIfContainsUnsupportedAggregate extracts aggregate expressions from the
- * logical plan, walks over them and uses helper functions to check if we can
- * transform these aggregate expressions and push them down to worker nodes.
- * These helper functions error out if we cannot transform the aggregates.
+ * DeferErrorIfContainsUnsupportedAggregate extracts aggregate expressions from
+ * the logical plan, walks over them and uses helper functions to check if we
+ * can transform these aggregate expressions and push them down to worker nodes.
  */
-static void
-ErrorIfContainsUnsupportedAggregate(MultiNode *logicalPlanNode)
+static DeferredErrorMessage *
+DeferErrorIfContainsUnsupportedAggregate(MultiNode *logicalPlanNode)
 {
+	DeferredErrorMessage *error = NULL;
 	List *opNodeList = FindNodesOfType(logicalPlanNode, T_MultiExtendedOp);
 	MultiExtendedOp *extendedOpNode = (MultiExtendedOp *) linitial(opNodeList);
 
@@ -3495,88 +3521,109 @@ ErrorIfContainsUnsupportedAggregate(MultiNode *logicalPlanNode)
 		 */
 		if (aggregateType == AGGREGATE_ARRAY_AGG)
 		{
-			ErrorIfUnsupportedArrayAggregate(aggregateExpression);
+			error = DeferErrorIfUnsupportedArrayAggregate(aggregateExpression);
 		}
 		else if (aggregateType == AGGREGATE_JSONB_AGG ||
 				 aggregateType == AGGREGATE_JSON_AGG)
 		{
-			ErrorIfUnsupportedJsonAggregate(aggregateType, aggregateExpression);
+			error = DeferErrorIfUnsupportedJsonAggregate(aggregateType,
+														 aggregateExpression);
 		}
 		else if (aggregateType == AGGREGATE_JSONB_OBJECT_AGG ||
 				 aggregateType == AGGREGATE_JSON_OBJECT_AGG)
 		{
-			ErrorIfUnsupportedJsonAggregate(aggregateType, aggregateExpression);
+			error = DeferErrorIfUnsupportedJsonAggregate(aggregateType,
+														 aggregateExpression);
 		}
 		else if (aggregateExpression->aggdistinct)
 		{
-			ErrorIfUnsupportedAggregateDistinct(aggregateExpression, logicalPlanNode);
+			error = DeferErrorIfUnsupportedAggregateDistinct(aggregateExpression,
+															 logicalPlanNode);
+		}
+
+		if (error != NULL)
+		{
+			return error;
 		}
 	}
+
+	return NULL;
 }
 
 
 /*
- * ErrorIfUnsupportedArrayAggregate checks if we can transform the array aggregate
+ * DeferErrorIfUnsupportedArrayAggregate checks if we can transform the array aggregate
  * expression and push it down to the worker node. If we cannot transform the
  * aggregate, this function errors.
  */
-static void
-ErrorIfUnsupportedArrayAggregate(Aggref *arrayAggregateExpression)
+static DeferredErrorMessage *
+DeferErrorIfUnsupportedArrayAggregate(Aggref *arrayAggregateExpression)
 {
 	/* if array_agg has order by, we error out */
 	if (arrayAggregateExpression->aggorder)
 	{
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("array_agg with order by is unsupported")));
+		return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+							 "array_agg with order by is unsupported",
+							 NULL, NULL);
 	}
 
 	/* if array_agg has distinct, we error out */
 	if (arrayAggregateExpression->aggdistinct)
 	{
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("array_agg (distinct) is unsupported")));
+		return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+							 "array_agg (distinct) is unsupported",
+							 NULL, NULL);
 	}
+
+	return NULL;
 }
 
 
 /*
- * ErrorIfUnsupportedJsonAggregate checks if we can transform the json
+ * DeferErrorIfUnsupportedJsonAggregate checks if we can transform the json
  * aggregate expression and push it down to the worker node. If we cannot
  * transform the aggregate, this function errors.
  */
-static void
-ErrorIfUnsupportedJsonAggregate(AggregateType type,
-								Aggref *aggregateExpression)
+static DeferredErrorMessage *
+DeferErrorIfUnsupportedJsonAggregate(AggregateType type,
+									 Aggref *aggregateExpression)
 {
 	/* if json aggregate has order by, we error out */
-	if (aggregateExpression->aggorder)
+	if (aggregateExpression->aggdistinct || aggregateExpression->aggorder)
 	{
+		StringInfoData errorDetail;
+		initStringInfo(&errorDetail);
 		const char *name = AggregateNames[type];
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("%s with order by is unsupported", name)));
+
+		appendStringInfoString(&errorDetail, name);
+		if (aggregateExpression->aggorder)
+		{
+			appendStringInfoString(&errorDetail, " with order by is unsupported");
+		}
+		else
+		{
+			appendStringInfoString(&errorDetail, " (distinct) is unsupported");
+		}
+
+		return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED, errorDetail.data,
+							 NULL, NULL);
 	}
 
-	/* if json aggregate has distinct, we error out */
-	if (aggregateExpression->aggdistinct)
-	{
-		const char *name = AggregateNames[type];
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("%s (distinct) is unsupported", name)));
-	}
+	return NULL;
 }
 
 
 /*
- * ErrorIfUnsupportedAggregateDistinct checks if we can transform the aggregate
+ * DeferErrorIfUnsupportedAggregateDistinct checks if we can transform the aggregate
  * (distinct expression) and push it down to the worker node. It handles count
  * (distinct) separately to check if we can use distinct approximations. If we
  * cannot transform the aggregate, this function errors.
  */
-static void
-ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
-									MultiNode *logicalPlanNode)
+static DeferredErrorMessage *
+DeferErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
+										 MultiNode *logicalPlanNode)
 {
-	char *errorDetail = NULL;
+	const char *errorDetail = NULL;
 	bool distinctSupported = true;
 
 	AggregateType aggregateType = GetAggregateType(aggregateExpression);
@@ -3584,7 +3631,7 @@ ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
 	/* If we're aggregating on coordinator, this becomes simple. */
 	if (aggregateType == AGGREGATE_CUSTOM_ROW_GATHER)
 	{
-		return;
+		return NULL;
 	}
 
 	/*
@@ -3601,9 +3648,10 @@ ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
 			Var *column = (Var *) lfirst(columnCell);
 			if (column->varattno <= 0)
 			{
-				ereport(ERROR, (errmsg("cannot compute count (distinct)"),
-								errdetail("Non-column references are not supported "
-										  "yet")));
+				return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+									 "cannot compute count (distinct)",
+									 "Non-column references are not supported yet",
+									 NULL);
 			}
 		}
 	}
@@ -3617,9 +3665,10 @@ ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
 			if (multiTable->relationId == SUBQUERY_RELATION_ID ||
 				multiTable->relationId == SUBQUERY_PUSHDOWN_RELATION_ID)
 			{
-				ereport(ERROR, (errmsg("cannot compute aggregate (distinct)"),
-								errdetail("Only count(distinct) aggregate is "
-										  "supported in subqueries")));
+				return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+									 "cannot compute aggregate (distinct)",
+									 "Only count(distinct) aggregate is "
+									 "supported in subqueries", NULL);
 			}
 		}
 	}
@@ -3634,12 +3683,14 @@ ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
 		/* if extension for distinct approximation is loaded, we are good */
 		if (distinctExtensionId != InvalidOid)
 		{
-			return;
+			return NULL;
 		}
 		else
 		{
-			ereport(ERROR, (errmsg("cannot compute count (distinct) approximation"),
-							errhint("You need to have the hll extension loaded.")));
+			return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+								 "cannot compute count (distinct) approximation",
+								 NULL,
+								 "You need to have the hll extension loaded.");
 		}
 	}
 
@@ -3701,21 +3752,19 @@ ErrorIfUnsupportedAggregateDistinct(Aggref *aggregateExpression,
 	/* if current aggregate expression isn't supported, error out */
 	if (!distinctSupported)
 	{
+		const char *errorHint = NULL;
 		if (aggregateType == AGGREGATE_COUNT)
 		{
-			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							errmsg("cannot compute aggregate (distinct)"),
-							errdetail("%s", errorDetail),
-							errhint("You can load the hll extension from contrib "
-									"packages and enable distinct approximations.")));
+			errorHint = "You can load the hll extension from contrib "
+						"packages and enable distinct approximations.";
 		}
-		else
-		{
-			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							errmsg("cannot compute aggregate (distinct)"),
-							errdetail("%s", errorDetail)));
-		}
+
+		return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+							 "cannot compute aggregate (distinct)",
+							 errorDetail, errorHint);
 	}
+
+	return NULL;
 }
 
 

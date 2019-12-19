@@ -1326,6 +1326,7 @@ TransformSubqueryNode(MultiTable *subqueryNode)
 	ExtendedOpNodeProperties extendedOpNodeProperties =
 		BuildExtendedOpNodeProperties(extendedOpNode);
 	extendedOpNodeProperties.pullUpIntermediateRows = false;
+
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);
 	MultiExtendedOp *workerExtendedOpNode =
@@ -2206,41 +2207,44 @@ WorkerExtendedOpNode(MultiExtendedOp *originalOpNode,
 									  &queryHavingQual, &queryTargetList,
 									  &queryGroupClause);
 
-	ProcessDistinctClauseForWorkerQuery(originalDistinctClause, hasDistinctOn,
-										queryGroupClause.groupClauseList,
-										queryHasAggregates, &queryDistinctClause,
-										&distinctPreventsLimitPushdown);
-
 	ProcessWindowFunctionsForWorkerQuery(originalWindowClause, originalTargetEntryList,
 										 &queryWindowClause, &queryTargetList);
 
-	/*
-	 * Order by and limit clauses are relevant to each other, and processing
-	 * them together makes it handy for us.
-	 *
-	 * The other parts of the query might have already prohibited pushing down
-	 * LIMIT and ORDER BY clauses as described below:
-	 *      (1) Creating a new group by clause during aggregate mutation, or
-	 *      (2) Distinct clause is not pushed down
-	 */
-	bool groupByExtended =
-		list_length(queryGroupClause.groupClauseList) > originalGroupClauseLength;
-	if (!groupByExtended && !distinctPreventsLimitPushdown)
+	if (!extendedOpNodeProperties->pullUpIntermediateRows)
 	{
-		/* both sort and limit clauses rely on similar information */
-		OrderByLimitReference limitOrderByReference =
-			BuildOrderByLimitReference(hasDistinctOn,
-									   groupedByDisjointPartitionColumn,
-									   originalGroupClauseList,
-									   originalSortClauseList,
-									   originalTargetEntryList);
+		ProcessDistinctClauseForWorkerQuery(originalDistinctClause, hasDistinctOn,
+											queryGroupClause.groupClauseList,
+											queryHasAggregates, &queryDistinctClause,
+											&distinctPreventsLimitPushdown);
 
-		ProcessLimitOrderByForWorkerQuery(limitOrderByReference, originalLimitCount,
-										  originalLimitOffset, originalSortClauseList,
-										  originalGroupClauseList,
-										  originalTargetEntryList,
-										  &queryOrderByLimit,
-										  &queryTargetList);
+		/*
+		 * Order by and limit clauses are relevant to each other, and processing
+		 * them together makes it handy for us.
+		 *
+		 * The other parts of the query might have already prohibited pushing down
+		 * LIMIT and ORDER BY clauses as described below:
+		 *      (1) Creating a new group by clause during aggregate mutation, or
+		 *      (2) Distinct clause is not pushed down
+		 */
+		bool groupByExtended =
+			list_length(queryGroupClause.groupClauseList) > originalGroupClauseLength;
+		if (!groupByExtended && !distinctPreventsLimitPushdown)
+		{
+			/* both sort and limit clauses rely on similar information */
+			OrderByLimitReference limitOrderByReference =
+				BuildOrderByLimitReference(hasDistinctOn,
+										   groupedByDisjointPartitionColumn,
+										   originalGroupClauseList,
+										   originalSortClauseList,
+										   originalTargetEntryList);
+
+			ProcessLimitOrderByForWorkerQuery(limitOrderByReference, originalLimitCount,
+											  originalLimitOffset, originalSortClauseList,
+											  originalGroupClauseList,
+											  originalTargetEntryList,
+											  &queryOrderByLimit,
+											  &queryTargetList);
+		}
 	}
 
 	/* finally, fill the extended op node with the data we gathered */
@@ -2358,8 +2362,6 @@ ProcessHavingClauseForWorkerQuery(Node *originalHavingQual,
 								  QueryTargetList *queryTargetList,
 								  QueryGroupClause *queryGroupClause)
 {
-	TargetEntry *targetEntry = NULL;
-
 	if (originalHavingQual == NULL)
 	{
 		return;
@@ -2382,6 +2384,7 @@ ProcessHavingClauseForWorkerQuery(Node *originalHavingQual,
 
 		WorkerAggregateWalker(originalHavingQual, workerAggContext);
 		List *newExpressionList = workerAggContext->expressionList;
+		TargetEntry *targetEntry = NULL;
 
 		ExpandWorkerTargetEntry(newExpressionList, targetEntry,
 								workerAggContext->createGroupByClause,
@@ -2432,7 +2435,7 @@ ProcessHavingClauseForWorkerQuery(Node *originalHavingQual,
  * and DISTINCT ON clauses to the worker queries.
  *
  * The function also sets distinctPreventsLimitPushdown. As the name reveals,
- * distinct could prevent pushwing down LIMIT clauses later in the planning.
+ * distinct could prevent pushing down LIMIT clauses later in the planning.
  * For the details, see the comments in the function.
  *
  *     inputs: distinctClause, hasDistinctOn, groupClauseList, queryHasAggregates
@@ -2446,14 +2449,14 @@ ProcessDistinctClauseForWorkerQuery(List *distinctClause, bool hasDistinctOn,
 									QueryDistinctClause *queryDistinctClause,
 									bool *distinctPreventsLimitPushdown)
 {
-	bool distinctClauseSupersetofGroupClause = false;
+	*distinctPreventsLimitPushdown = false;
 
 	if (distinctClause == NIL)
 	{
 		return;
 	}
 
-	*distinctPreventsLimitPushdown = false;
+	bool distinctClauseSupersetofGroupClause = false;
 
 	if (groupClauseList == NIL ||
 		IsGroupBySubsetOfDistinct(groupClauseList, distinctClause))
@@ -2496,13 +2499,13 @@ ProcessDistinctClauseForWorkerQuery(List *distinctClause, bool hasDistinctOn,
  * pushdown.
  *
  * TODO: Citus only supports pushing down window clauses as-is under certain circumstances.
- * And, at this point in the planning, we are guaraanted to process a window function
+ * And, at this point in the planning, we are guaranteed to process a window function
  * which is safe to pushdown as-is. It should also be possible to pull the relevant data
  * to the coordinator and apply the window clauses for the remaining cases.
  *
  * Note that even though Citus only pushes down the window functions, it may need to
  * modify the target list of the worker query when the window function refers to
- * an avg(). The reason is that any aggragate which is also referred by other
+ * an avg(). The reason is that any aggregate which is also referred by other
  * target entries would be mutated by Citus. Thus, we add a copy of the same aggragate
  * to the worker target list to make sure that the window function refers to the
  * non-mutated aggragate.
@@ -2549,8 +2552,8 @@ ProcessWindowFunctionsForWorkerQuery(List *windowClauseList,
 		 * Note that even Citus does push down the window clauses as-is, we may still need to
 		 * add the generated entries to the target list. The reason is that the same aggragates
 		 * might be referred from another target entry that is a bare aggragate (e.g., no window
-		 * functions), which would have been mutated. For instance, when an average aggragate
-		 * is mutated on the target list, the window function would refer to a sum aggragate,
+		 * functions), which would have been mutated. For instance, when an average aggregate
+		 * is mutated on the target list, the window function would refer to a sum aggregate,
 		 * which is obviously wrong.
 		 */
 		queryTargetList->targetEntryList = list_concat(queryTargetList->targetEntryList,
@@ -2766,7 +2769,7 @@ GenerateWorkerTargetEntry(TargetEntry *targetEntry, Expr *workerExpression,
 	 */
 	if (targetEntry)
 	{
-		newTargetEntry = copyObject(targetEntry);
+		newTargetEntry = flatCopyTargetEntry(targetEntry);
 	}
 	else
 	{
@@ -2783,7 +2786,7 @@ GenerateWorkerTargetEntry(TargetEntry *targetEntry, Expr *workerExpression,
 		newTargetEntry->resname = columnNameString->data;
 	}
 
-	/* we can generate a target entry without any expressions */
+	/* we can't generate a target entry without any expressions */
 	Assert(workerExpression != NULL);
 
 	/* force resjunk to false as we may need this on the master */

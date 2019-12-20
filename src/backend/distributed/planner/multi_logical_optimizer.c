@@ -191,7 +191,8 @@ static void ParentSetNewChild(MultiNode *parentNode, MultiNode *oldChildNode,
 static void ApplyExtendedOpNodes(MultiExtendedOp *originalNode,
 								 MultiExtendedOp *masterNode,
 								 MultiExtendedOp *workerNode);
-static void TransformSubqueryNode(MultiTable *subqueryNode);
+static void TransformSubqueryNode(MultiTable *subqueryNode, bool
+								  requiresIntermediateRowPullUp);
 static MultiExtendedOp * MasterExtendedOpNode(MultiExtendedOp *originalOpNode,
 											  ExtendedOpNodeProperties *
 											  extendedOpNodeProperties);
@@ -426,13 +427,21 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 		{
 			DeferredErrorMessage *error =
 				DeferErrorIfContainsUnsupportedAggregate((MultiNode *) tableNode);
+			bool subqueryRequiresIntermediateRowPullUp = false;
 
 			if (error != NULL)
 			{
-				RaiseDeferredError(error, ERROR);
+				if (CoordinatorAggregationStrategy == COORDINATOR_AGGREGATION_DISABLED)
+				{
+					RaiseDeferredError(error, ERROR);
+				}
+				else
+				{
+					subqueryRequiresIntermediateRowPullUp = true;
+				}
 			}
 
-			TransformSubqueryNode(tableNode);
+			TransformSubqueryNode(tableNode, subqueryRequiresIntermediateRowPullUp);
 		}
 	}
 
@@ -1316,8 +1325,14 @@ ApplyExtendedOpNodes(MultiExtendedOp *originalNode, MultiExtendedOp *masterNode,
  * operator node.
  */
 static void
-TransformSubqueryNode(MultiTable *subqueryNode)
+TransformSubqueryNode(MultiTable *subqueryNode, bool requiresIntermediateRowPullUp)
 {
+	if (CoordinatorAggregationStrategy != COORDINATOR_AGGREGATION_DISABLED &&
+		RequiresIntermediateRowPullUp((MultiNode *) subqueryNode))
+	{
+		requiresIntermediateRowPullUp = true;
+	}
+
 	MultiExtendedOp *extendedOpNode =
 		(MultiExtendedOp *) ChildNode((MultiUnaryNode *) subqueryNode);
 	MultiNode *collectNode = ChildNode((MultiUnaryNode *) extendedOpNode);
@@ -1325,7 +1340,7 @@ TransformSubqueryNode(MultiTable *subqueryNode)
 
 	ExtendedOpNodeProperties extendedOpNodeProperties =
 		BuildExtendedOpNodeProperties(extendedOpNode);
-	extendedOpNodeProperties.pullUpIntermediateRows = false;
+	extendedOpNodeProperties.pullUpIntermediateRows = requiresIntermediateRowPullUp;
 
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);
@@ -2701,7 +2716,7 @@ ExpandWorkerTargetEntry(List *expressionList, TargetEntry *originalTargetEntry,
 		TargetEntry *newTargetEntry =
 			GenerateWorkerTargetEntry(originalTargetEntry, newExpression,
 									  queryTargetList->targetProjectionNumber);
-		(queryTargetList->targetProjectionNumber)++;
+		queryTargetList->targetProjectionNumber++;
 		queryTargetList->targetEntryList =
 			lappend(queryTargetList->targetEntryList, newTargetEntry);
 
@@ -2786,7 +2801,7 @@ GenerateWorkerTargetEntry(TargetEntry *targetEntry, Expr *workerExpression,
 		newTargetEntry->resname = columnNameString->data;
 	}
 
-	/* we can't generate a target entry without any expressions */
+	/* we can't generate a target entry without an expression */
 	Assert(workerExpression != NULL);
 
 	/* force resjunk to false as we may need this on the master */

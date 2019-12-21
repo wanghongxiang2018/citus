@@ -18,6 +18,7 @@
 #include "distributed/master_protocol.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/distributed_planner.h"
+#include "distributed/multi_partitioning_utils.h"
 #include "distributed/placement_connection.h"
 #include "distributed/relation_access_tracking.h"
 #include "utils/hsearch.h"
@@ -1065,8 +1066,7 @@ CheckShardPlacements(ConnectionShardHashEntry *shardEntry)
 		{
 			uint64 shardId = shardEntry->key.shardId;
 			uint64 placementId = placementEntry->key.placementId;
-			GroupShardPlacement *shardPlacement =
-				LoadGroupShardPlacement(shardId, placementId);
+			ShardPlacement *shardPlacement = LoadShardPlacement(shardId, placementId);
 
 			/*
 			 * We only set shard state if its current state is FILE_FINALIZED, which
@@ -1075,6 +1075,17 @@ CheckShardPlacements(ConnectionShardHashEntry *shardEntry)
 			if (shardPlacement->shardState == FILE_FINALIZED)
 			{
 				UpdateShardPlacementState(placementEntry->key.placementId, FILE_INACTIVE);
+
+				/*
+				 * In case the shard belongs to a partitioned table, we make sure to update
+				 * the states of its partitions. Repairing shards already ensures to recreate
+				 * all the partitions.
+				 */
+				ShardInterval *shardInterval = LoadShardInterval(shardId);
+				if (PartitionedTable(shardInterval->relationId))
+				{
+					UpdatePartitionShardPlacementStates(shardPlacement, FILE_INACTIVE);
+				}
 			}
 		}
 	}

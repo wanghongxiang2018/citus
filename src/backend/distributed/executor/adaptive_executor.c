@@ -137,6 +137,7 @@
 #include "distributed/local_executor.h"
 #include "distributed/multi_client_executor.h"
 #include "distributed/multi_executor.h"
+#include "distributed/multi_partitioning_utils.h"
 #include "distributed/multi_physical_planner.h"
 #include "distributed/multi_resowner.h"
 #include "distributed/multi_server_executor.h"
@@ -3492,10 +3493,22 @@ PlacementExecutionDone(TaskPlacementExecution *placementExecution, bool succeede
 			/*
 			 * We only set shard state if its current state is FILE_FINALIZED, which
 			 * prevents overwriting shard state if it is already set at somewhere else.
+			 *
+			 * In case the shard belongs to a partitioned table, we make sure to update
+			 * the states of its partitions. Repairing shards already ensures to recreate
+			 * all the partitions.
 			 */
 			if (shardPlacement->shardState == FILE_FINALIZED)
 			{
-				UpdateShardPlacementState(shardPlacement->placementId, FILE_INACTIVE);
+				uint64 placementId = shardPlacement->placementId;
+				UpdateShardPlacementState(placementId, FILE_INACTIVE);
+
+				uint64 shardId = placementExecution->shardPlacement->shardId;
+				ShardInterval *shardInterval = LoadShardInterval(shardId);
+				if (PartitionedTable(shardInterval->relationId))
+				{
+					UpdatePartitionShardPlacementStates(shardPlacement, FILE_INACTIVE);
+				}
 			}
 		}
 

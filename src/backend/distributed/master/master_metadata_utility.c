@@ -28,6 +28,7 @@
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_type.h"
 #include "commands/extension.h"
+#include "distributed/colocation_utils.h"
 #include "distributed/connection_management.h"
 #include "distributed/citus_nodes.h"
 #include "distributed/listutils.h"
@@ -36,6 +37,7 @@
 #include "distributed/metadata_cache.h"
 #include "distributed/multi_join_order.h"
 #include "distributed/multi_logical_optimizer.h"
+#include "distributed/multi_partitioning_utils.h"
 #include "distributed/multi_physical_planner.h"
 #include "distributed/pg_dist_colocation.h"
 #include "distributed/pg_dist_partition.h"
@@ -72,6 +74,7 @@ static uint64 DistributedTableSizeOnWorker(WorkerNode *workerNode, Oid relationI
 										   char *sizeQuery);
 static List * ShardIntervalsOnWorkerGroup(WorkerNode *workerNode, Oid relationId);
 static void ErrorIfNotSuitableToGetSize(Oid relationId);
+static ShardPlacement * ShardPlacementOnNode(ShardInterval *shardInterval, int nodeId);
 
 
 /* exports for SQL callable functions */
@@ -1175,6 +1178,66 @@ DeleteShardPlacementRow(uint64 placementId)
 
 	CommandCounterIncrement();
 	heap_close(pgDistPlacement, NoLock);
+}
+
+
+/*
+ * UpdatePartitionShardPlacementStates gets a shard placement which is asserted to belong
+ * to partitioned table. The function goes over the corresponding placements of its
+ * partitions, and sets their state to the input shardState.
+ */
+void
+UpdatePartitionShardPlacementStates(ShardPlacement *parentShardPlacement, char shardState)
+{
+	ShardInterval *parentShardInterval =
+		LoadShardInterval(parentShardPlacement->shardId);
+	Oid partitionedTableOid = parentShardInterval->relationId;
+
+	/* this function should only be called for partitioned tables */
+	Assert(PartitionedTable(partitionedTableOid));
+
+	ListCell *partitionOidCell = NULL;
+	List *partitionList = PartitionList(partitionedTableOid);
+	foreach(partitionOidCell, partitionList)
+	{
+		Oid partitionOid = lfirst_oid(partitionOidCell);
+		uint64 partitionShardId =
+			ColocatedShardIdInRelation(partitionOid, parentShardInterval->shardIndex);
+		ShardInterval *partitionShardInterval = LoadShardInterval(partitionShardId);
+
+		ShardPlacement *partitionPlacement =
+			ShardPlacementOnNode(partitionShardInterval, parentShardPlacement->nodeId);
+
+		/* the partition should have a placement on the */
+		Assert(partitionPlacement != NULL);
+
+		UpdateShardPlacementState(partitionPlacement->placementId, shardState);
+	}
+}
+
+
+/*
+ * ShardPlacementOnNode gets a shardInterval and a nodeId, returns a placement
+ * of the shard on the given node. If no such placement exists, the function
+ * return NULL.
+ */
+static ShardPlacement *
+ShardPlacementOnNode(ShardInterval *shardInterval, int nodeId)
+{
+	List *placementList = ShardPlacementList(shardInterval->shardId);
+	ListCell *placementCell = NULL;
+
+	foreach(placementCell, placementList)
+	{
+		ShardPlacement *placement = (ShardPlacement *) lfirst(placementCell);
+
+		if (placement->nodeId == nodeId)
+		{
+			return placement;
+		}
+	}
+
+	return NULL;
 }
 
 

@@ -1,22 +1,3 @@
-# ----------
-# $Id$
-#
-# Regression tests that exercise distributed planning/execution functionality.
-#
-# All new regression tests are expected to be run by this schedule. Tests that
-# do not set specific task executor type should also be added to
-# multi_task_tracker_extra_schedule.
-#
-# Note that we use variant comparison files to test version dependent regression
-# test results. For more information:
-# http://www.postgresql.org/docs/current/static/regress-variant.html
-# ----------
+test: multi_deparse_shard_query multi_distributed_transaction_id multi_real_time_transaction intermediate_results limit_intermediate_size
+test: multi_subquery_in_where_reference_clause full_join adaptive_executor propagate_set_commands
 
-# ---
-# Tests around schema changes, these are run first, so there's no preexisting objects.
-#
-# propagate_extension_commands lies just after multi_cluster_management as we do
-# remove / add node operations, we do not want any preexisting objects before
-# propagate_extension_commands
-# ---
-test: multi_extension

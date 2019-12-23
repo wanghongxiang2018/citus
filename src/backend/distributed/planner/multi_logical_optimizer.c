@@ -404,9 +404,7 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 	MultiExtendedOp *extendedOpNode = (MultiExtendedOp *) linitial(extendedOpNodeList);
 
 	ExtendedOpNodeProperties extendedOpNodeProperties = BuildExtendedOpNodeProperties(
-		extendedOpNode);
-
-	extendedOpNodeProperties.pullUpIntermediateRows = requiresIntermediateRowPullUp;
+		extendedOpNode, requiresIntermediateRowPullUp);
 
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);
@@ -1335,9 +1333,7 @@ TransformSubqueryNode(MultiTable *subqueryNode, bool requiresIntermediateRowPull
 	MultiNode *collectChildNode = ChildNode((MultiUnaryNode *) collectNode);
 
 	ExtendedOpNodeProperties extendedOpNodeProperties =
-		BuildExtendedOpNodeProperties(extendedOpNode);
-
-	extendedOpNodeProperties.pullUpIntermediateRows = requiresIntermediateRowPullUp;
+		BuildExtendedOpNodeProperties(extendedOpNode, requiresIntermediateRowPullUp);
 
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);

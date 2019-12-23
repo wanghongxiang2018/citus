@@ -12,6 +12,7 @@
 
 #include "distributed/colocation_utils.h"
 #include "distributed/distributed_planner.h"
+#include "distributed/listutils.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/multi_logical_planner.h"
 #include "distributed/multi_logical_optimizer.h"
@@ -134,6 +135,8 @@ static void ListConcatUniqueAttributeClassMemberLists(AttributeEquivalenceClass 
 													  secondClass);
 static Index RelationRestrictionPartitionKeyIndex(RelationRestriction *
 												  relationRestriction);
+static bool AllRelationsInRestrictionContextColocated(RelationRestrictionContext *
+													  restrictionContext);
 static RelationRestrictionContext * FilterRelationRestrictionContext(
 	RelationRestrictionContext *relationRestrictionContext,
 	Relids
@@ -346,8 +349,20 @@ SafeToPushdownUnionSubquery(PlannerRestrictionContext *plannerRestrictionContext
 	allAttributeEquivalenceList = lappend(allAttributeEquivalenceList,
 										  attributeEquivalance);
 
-	return EquivalenceListContainsRelationsEquality(allAttributeEquivalenceList,
-													restrictionContext);
+	if (!EquivalenceListContainsRelationsEquality(allAttributeEquivalenceList,
+												  restrictionContext))
+	{
+		/* cannot confirm equality for all distribution colums */
+		return false;
+	}
+
+	if (!AllRelationsInRestrictionContextColocated(restrictionContext))
+	{
+		/* distribution columns are equal, but tables are not co-located */
+		return false;
+	}
+
+	return true;
 }
 
 
@@ -591,8 +606,8 @@ ReferenceRelationCount(RelationRestrictionContext *restrictionContext)
  * EquivalenceListContainsRelationsEquality gets a list of attributed equivalence
  * list and a relation restriction context. The function first generates a common
  * equivalence class out of the attributeEquivalenceList. Later, the function checks
- * whether all the relations exists in the common equivalence class and whether
- * they are co-located.
+ * whether all the relations exists in the common equivalence class.
+ *
  */
 bool
 EquivalenceListContainsRelationsEquality(List *attributeEquivalenceList,
@@ -601,7 +616,6 @@ EquivalenceListContainsRelationsEquality(List *attributeEquivalenceList,
 	ListCell *commonEqClassCell = NULL;
 	ListCell *relationRestrictionCell = NULL;
 	Relids commonRteIdentities = NULL;
-	int initialColocationId = INVALID_COLOCATION_ID;
 
 	/*
 	 * In general we're trying to expand existing the equivalence classes to find a
@@ -628,25 +642,11 @@ EquivalenceListContainsRelationsEquality(List *attributeEquivalenceList,
 		RelationRestriction *relationRestriction =
 			(RelationRestriction *) lfirst(relationRestrictionCell);
 		int rteIdentity = GetRTEIdentity(relationRestriction->rte);
-		int colocationId = TableColocationId(relationRestriction->relationId);
 
 		/* we shouldn't check for the equality of reference tables */
 		if (PartitionMethod(relationRestriction->relationId) == DISTRIBUTE_BY_NONE)
 		{
 			continue;
-		}
-
-		if (initialColocationId == INVALID_COLOCATION_ID)
-		{
-			initialColocationId = colocationId;
-		}
-		else if (colocationId != initialColocationId)
-		{
-			/*
-			 * For our purpose, distribution columns in non-colocated tables are
-			 * by definition not equal.
-			 */
-			return false;
 		}
 
 		if (!bms_is_member(rteIdentity, commonRteIdentities))
@@ -1663,6 +1663,42 @@ RelationRestrictionPartitionKeyIndex(RelationRestriction *relationRestriction)
 	}
 
 	return InvalidAttrNumber;
+}
+
+
+/*
+ * AllRelationsInRestrictionContextColocated determines whether all of the relations in the
+ * given relation restrictions list are co-located.
+ */
+static bool
+AllRelationsInRestrictionContextColocated(RelationRestrictionContext *restrictionContext)
+{
+	RelationRestriction *relationRestriction = NULL;
+	int initialColocationId = INVALID_COLOCATION_ID;
+
+	/* check whether all relations exists in the main restriction list */
+	foreach_ptr(relationRestriction, restrictionContext->relationRestrictionList)
+	{
+		Oid relationId = relationRestriction->relationId;
+
+		if (PartitionMethod(relationId) == DISTRIBUTE_BY_NONE)
+		{
+			continue;
+		}
+
+		int colocationId = TableColocationId(relationId);
+
+		if (initialColocationId == INVALID_COLOCATION_ID)
+		{
+			initialColocationId = colocationId;
+		}
+		else if (colocationId != initialColocationId)
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 
 

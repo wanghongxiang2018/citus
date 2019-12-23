@@ -4,6 +4,7 @@
 -- Tests support for user defined aggregates
 create schema aggregate_support;
 set search_path to aggregate_support;
+set citus.coordinator_aggregation_strategy to 'disabled';
 -- We test with & without STRICT as our code is responsible for managing these NULL checks
 create function sum2_sfunc_strict(state int, x int)
 returns int immutable strict language plpgsql as $$
@@ -402,6 +403,5 @@ select key, count(distinct aggdata)
 from aggdata group by key order by 1, 2;
 ERROR:  type "aggregate_support.aggdata" does not exist
 CONTEXT:  while executing command on localhost:57637
-set citus.coordinator_aggregation_strategy to 'disabled';
 set client_min_messages to error;
 drop schema aggregate_support cascade;

@@ -324,32 +324,27 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 	ListCell *collectNodeCell = NULL;
 	ListCell *tableNodeCell = NULL;
 	MultiNode *logicalPlanNode = (MultiNode *) multiLogicalPlan;
-
+	bool requiresIntermediateRowPullUp = RequiresIntermediateRowPullUp(logicalPlanNode);
 	List *extendedOpNodeList = FindNodesOfType(logicalPlanNode, T_MultiExtendedOp);
 	MultiExtendedOp *extendedOpNode = (MultiExtendedOp *) linitial(extendedOpNodeList);
 	ExtendedOpNodeProperties extendedOpNodeProperties = BuildExtendedOpNodeProperties(
-		extendedOpNode);
-	extendedOpNodeProperties.pullUpIntermediateRows = false;
+		extendedOpNode, requiresIntermediateRowPullUp);
 
-	if (!extendedOpNodeProperties.groupedByDisjointPartitionColumn)
+	if (!extendedOpNodeProperties.groupedByDisjointPartitionColumn &&
+		!extendedOpNodeProperties.pullUpIntermediateRows)
 	{
-		extendedOpNodeProperties.pullUpIntermediateRows =
-			RequiresIntermediateRowPullUp(logicalPlanNode);
-		if (!extendedOpNodeProperties.pullUpIntermediateRows)
-		{
-			DeferredErrorMessage *error =
-				DeferErrorIfContainsUnsupportedAggregate(logicalPlanNode);
+		DeferredErrorMessage *error =
+			DeferErrorIfContainsUnsupportedAggregate(logicalPlanNode);
 
-			if (error != NULL)
+		if (error != NULL)
+		{
+			if (CoordinatorAggregationStrategy == COORDINATOR_AGGREGATION_DISABLED)
 			{
-				if (CoordinatorAggregationStrategy == COORDINATOR_AGGREGATION_DISABLED)
-				{
-					RaiseDeferredError(error, ERROR);
-				}
-				else
-				{
-					extendedOpNodeProperties.pullUpIntermediateRows = true;
-				}
+				RaiseDeferredError(error, ERROR);
+			}
+			else
+			{
+				extendedOpNodeProperties.pullUpIntermediateRows = true;
 			}
 		}
 	}
@@ -409,9 +404,6 @@ MultiLogicalPlanOptimize(MultiTreeRoot *multiLogicalPlan)
 	 * clause list to the worker operator node. We then push the worker operator
 	 * node below the collect node.
 	 */
-
-	extendedOpNodeProperties.pullUpIntermediateRows = requiresIntermediateRowPullUp;
-
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);
 	MultiExtendedOp *workerExtendedOpNode =
@@ -1339,8 +1331,7 @@ TransformSubqueryNode(MultiTable *subqueryNode, bool requiresIntermediateRowPull
 	MultiNode *collectChildNode = ChildNode((MultiUnaryNode *) collectNode);
 
 	ExtendedOpNodeProperties extendedOpNodeProperties =
-		BuildExtendedOpNodeProperties(extendedOpNode);
-	extendedOpNodeProperties.pullUpIntermediateRows = requiresIntermediateRowPullUp;
+		BuildExtendedOpNodeProperties(extendedOpNode, requiresIntermediateRowPullUp);
 
 	MultiExtendedOp *masterExtendedOpNode =
 		MasterExtendedOpNode(extendedOpNode, &extendedOpNodeProperties);

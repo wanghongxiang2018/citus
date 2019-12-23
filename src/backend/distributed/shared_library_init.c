@@ -1017,7 +1017,7 @@ RegisterCitusConfigVariables(void)
 		gettext_noop("Sets the strategy for when an aggregate cannot be pushed down."),
 		NULL,
 		&CoordinatorAggregationStrategy,
-		COORDINATOR_AGGREGATION_DISABLED,
+		COORDINATOR_AGGREGATION_ROW_GATHER,
 		coordinator_aggregation_options,
 		PGC_USERSET,
 		GUC_STANDARD,

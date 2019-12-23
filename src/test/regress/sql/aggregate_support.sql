@@ -5,6 +5,7 @@
 
 create schema aggregate_support;
 set search_path to aggregate_support;
+set citus.coordinator_aggregation_strategy to 'disabled';
 
 -- We test with & without STRICT as our code is responsible for managing these NULL checks
 create function sum2_sfunc_strict(state int, x int)
@@ -184,8 +185,6 @@ RESET citus.task_executor_type;
 -- This fails due to table types not being managed properly
 select key, count(distinct aggdata)
 from aggdata group by key order by 1, 2;
-
-set citus.coordinator_aggregation_strategy to 'disabled';
 
 set client_min_messages to error;
 drop schema aggregate_support cascade;

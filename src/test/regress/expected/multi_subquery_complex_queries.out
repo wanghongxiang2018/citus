@@ -574,7 +574,7 @@ GROUP BY
   types
 ORDER BY
   types;
-ERROR:  complex joins are only supported when all distributed tables are joined on their distribution columns with equal operator
+ERROR:  complex joins are only supported when all distributed tables are co-located and joined on their distribution columns
 -- similar query with more union statements (to enable UNION tree become larger)
 SELECT ("final_query"."event_types") as types, count(*) AS sumOfEventType
 FROM
@@ -1618,7 +1618,7 @@ FROM
 ORDER BY
   user_id DESC, lastseen DESC
 LIMIT 10;
-ERROR:  complex joins are only supported when all distributed tables are joined on their distribution columns with equal operator
+ERROR:  complex joins are only supported when all distributed tables are co-located and joined on their distribution columns
 -- not pushdownable since lower LATERAL JOIN is not on the partition key
 -- not recursively plannable due to LATERAL join where there is a reference
 -- from an outer query

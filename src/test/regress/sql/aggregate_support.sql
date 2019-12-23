@@ -169,6 +169,7 @@ select string_agg(distinct floor(val/2)::text, '|' order by floor(val/2)::text) 
 select string_agg(distinct floor(val/2)::text, '|' order by floor(val/2)::text) filter (where val < 5) from aggdata;
 select mode() within group (order by floor(val/2)) from aggdata;
 select percentile_cont(0.5) within group(order by valf) from aggdata;
+select key, percentile_cont(key/10.0) within group(order by val) from aggdata group by key;
 select floor(val/2), corr(valf, valf + val) from aggdata group by floor(val/2) order by 1;
 select floor(val/2), corr(valf, valf + val) from aggdata group by floor(val/2) having corr(valf + val, val) < 1 order by 1;
 select array_agg(val order by valf) from aggdata;

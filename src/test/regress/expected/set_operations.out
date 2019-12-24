@@ -719,7 +719,7 @@ DEBUG:  Plan 126 query after replacing subqueries and CTEs: SELECT u.x, u.y, tes
 DEBUG:  Router planner cannot handle multi-shard select queries
 ERROR:  cannot pushdown the subquery
 DETAIL:  Complex subqueries and CTEs cannot be in the outer part of the outer join
--- distributed table in WHERE clause is recursively planned 
+-- distributed table in WHERE clause is recursively planned
 SELECT * FROM ((SELECT * FROM test) UNION (SELECT * FROM ref WHERE a IN (SELECT x FROM test))) u ORDER BY 1,2;
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
@@ -843,29 +843,20 @@ DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  generating subplan 154_1 for subquery SELECT count(DISTINCT x) AS count FROM recursive_union.test
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 154_2 for subquery SELECT count(DISTINCT y) AS count FROM recursive_union.test
-DEBUG:  Creating router plan
-DEBUG:  Plan is router executable
-DEBUG:  generating subplan 154_3 for subquery SELECT intermediate_result.count FROM read_intermediate_result('154_1'::text, 'binary'::citus_copy_format) intermediate_result(count bigint) UNION SELECT intermediate_result.count FROM read_intermediate_result('154_2'::text, 'binary'::citus_copy_format) intermediate_result(count bigint)
-DEBUG:  Plan 154 query after replacing subqueries and CTEs: SELECT count(DISTINCT x) AS count FROM (SELECT intermediate_result.count FROM read_intermediate_result('154_3'::text, 'binary'::citus_copy_format) intermediate_result(count bigint)) t(x) ORDER BY (count(DISTINCT x))
-DEBUG:  Creating router plan
-DEBUG:  Plan is router executable
- count 
--------
-     1
-(1 row)
-
--- other agg. distincts are also supported when group by includes partition key 
+ERROR:  cannot compute aggregate (distinct)
+DETAIL:  table partitioning is unsuitable for aggregate (distinct)
+HINT:  You can load the hll extension from contrib packages and enable distinct approximations.
+-- other agg. distincts are also supported when group by includes partition key
 select avg(DISTINCT t.x) FROM ((SELECT avg(DISTINCT y) FROM test GROUP BY x) UNION (SELECT avg(DISTINCT y) FROM test GROUP BY x)) as t(x) ORDER BY 1;
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 158_1 for subquery SELECT avg(DISTINCT y) AS avg FROM recursive_union.test GROUP BY x
+DEBUG:  generating subplan 157_1 for subquery SELECT avg(DISTINCT y) AS avg FROM recursive_union.test GROUP BY x
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 158_2 for subquery SELECT avg(DISTINCT y) AS avg FROM recursive_union.test GROUP BY x
+DEBUG:  generating subplan 157_2 for subquery SELECT avg(DISTINCT y) AS avg FROM recursive_union.test GROUP BY x
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
-DEBUG:  generating subplan 158_3 for subquery SELECT intermediate_result.avg FROM read_intermediate_result('158_1'::text, 'binary'::citus_copy_format) intermediate_result(avg numeric) UNION SELECT intermediate_result.avg FROM read_intermediate_result('158_2'::text, 'binary'::citus_copy_format) intermediate_result(avg numeric)
-DEBUG:  Plan 158 query after replacing subqueries and CTEs: SELECT avg(DISTINCT x) AS avg FROM (SELECT intermediate_result.avg FROM read_intermediate_result('158_3'::text, 'binary'::citus_copy_format) intermediate_result(avg numeric)) t(x) ORDER BY (avg(DISTINCT x))
+DEBUG:  generating subplan 157_3 for subquery SELECT intermediate_result.avg FROM read_intermediate_result('157_1'::text, 'binary'::citus_copy_format) intermediate_result(avg numeric) UNION SELECT intermediate_result.avg FROM read_intermediate_result('157_2'::text, 'binary'::citus_copy_format) intermediate_result(avg numeric)
+DEBUG:  Plan 157 query after replacing subqueries and CTEs: SELECT avg(DISTINCT x) AS avg FROM (SELECT intermediate_result.avg FROM read_intermediate_result('157_3'::text, 'binary'::citus_copy_format) intermediate_result(avg numeric)) t(x) ORDER BY (avg(DISTINCT x))
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
           avg           
@@ -873,7 +864,7 @@ DEBUG:  Plan is router executable
  1.50000000000000000000
 (1 row)
 
--- other agg. distincts are not supported when group by doesn't include partition key 
+-- other agg. distincts are not supported when group by doesn't include partition key
 select count(DISTINCT t.x) FROM ((SELECT avg(DISTINCT y) FROM test GROUP BY y) UNION (SELECT avg(DISTINCT y) FROM test GROUP BY y)) as t(x) ORDER BY 1;
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
@@ -882,7 +873,7 @@ DETAIL:  table partitioning is unsuitable for aggregate (distinct)
 -- one of the leaves is a repartition join
 SET citus.enable_repartition_joins TO ON;
 --  repartition is recursively planned before the set operation
-(SELECT x FROM test) INTERSECT (SELECT t1.x FROM test as t1, test as t2 WHERE t1.x = t2.y LIMIT 0) ORDER BY 1 DESC; 
+(SELECT x FROM test) INTERSECT (SELECT t1.x FROM test as t1, test as t2 WHERE t1.x = t2.y LIMIT 0) ORDER BY 1 DESC;
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  push down of limit count: 0
@@ -914,10 +905,10 @@ DEBUG:  pruning merge fetch taskId 10
 DETAIL:  Creating dependency on merge taskId 20
 DEBUG:  pruning merge fetch taskId 11
 DETAIL:  Creating dependency on merge taskId 20
-DEBUG:  generating subplan 164_1 for subquery SELECT t1.x FROM recursive_union.test t1, recursive_union.test t2 WHERE (t1.x OPERATOR(pg_catalog.=) t2.y) LIMIT 0
+DEBUG:  generating subplan 163_1 for subquery SELECT t1.x FROM recursive_union.test t1, recursive_union.test t2 WHERE (t1.x OPERATOR(pg_catalog.=) t2.y) LIMIT 0
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 164_2 for subquery SELECT x FROM recursive_union.test
-DEBUG:  Plan 164 query after replacing subqueries and CTEs: SELECT intermediate_result.x FROM read_intermediate_result('164_2'::text, 'binary'::citus_copy_format) intermediate_result(x integer) INTERSECT SELECT intermediate_result.x FROM read_intermediate_result('164_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer) ORDER BY 1 DESC
+DEBUG:  generating subplan 163_2 for subquery SELECT x FROM recursive_union.test
+DEBUG:  Plan 163 query after replacing subqueries and CTEs: SELECT intermediate_result.x FROM read_intermediate_result('163_2'::text, 'binary'::citus_copy_format) intermediate_result(x integer) INTERSECT SELECT intermediate_result.x FROM read_intermediate_result('163_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer) ORDER BY 1 DESC
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
  x 
@@ -956,10 +947,10 @@ DEBUG:  pruning merge fetch taskId 10
 DETAIL:  Creating dependency on merge taskId 20
 DEBUG:  pruning merge fetch taskId 11
 DETAIL:  Creating dependency on merge taskId 20
-DEBUG:  generating subplan 167_1 for subquery SELECT t1.x FROM recursive_union.test t1, recursive_union.test t2 WHERE (t1.x OPERATOR(pg_catalog.=) t2.y)
+DEBUG:  generating subplan 166_1 for subquery SELECT t1.x FROM recursive_union.test t1, recursive_union.test t2 WHERE (t1.x OPERATOR(pg_catalog.=) t2.y)
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 167_2 for subquery SELECT x FROM recursive_union.test
-DEBUG:  Plan 167 query after replacing subqueries and CTEs: SELECT intermediate_result.x FROM read_intermediate_result('167_2'::text, 'binary'::citus_copy_format) intermediate_result(x integer) INTERSECT SELECT intermediate_result.x FROM read_intermediate_result('167_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer) ORDER BY 1 DESC
+DEBUG:  generating subplan 166_2 for subquery SELECT x FROM recursive_union.test
+DEBUG:  Plan 166 query after replacing subqueries and CTEs: SELECT intermediate_result.x FROM read_intermediate_result('166_2'::text, 'binary'::citus_copy_format) intermediate_result(x integer) INTERSECT SELECT intermediate_result.x FROM read_intermediate_result('166_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer) ORDER BY 1 DESC
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
  x 
@@ -974,13 +965,13 @@ CREATE VIEW set_view_recursive AS (SELECT y FROM test) UNION (SELECT y FROM test
 SELECT * FROM set_view_recursive ORDER BY 1 DESC;
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 170_1 for subquery SELECT y FROM recursive_union.test
+DEBUG:  generating subplan 169_1 for subquery SELECT y FROM recursive_union.test
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 170_2 for subquery SELECT y FROM recursive_union.test
+DEBUG:  generating subplan 169_2 for subquery SELECT y FROM recursive_union.test
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
-DEBUG:  generating subplan 170_3 for subquery SELECT intermediate_result.y FROM read_intermediate_result('170_1'::text, 'binary'::citus_copy_format) intermediate_result(y integer) UNION SELECT intermediate_result.y FROM read_intermediate_result('170_2'::text, 'binary'::citus_copy_format) intermediate_result(y integer)
-DEBUG:  Plan 170 query after replacing subqueries and CTEs: SELECT y FROM (SELECT intermediate_result.y FROM read_intermediate_result('170_3'::text, 'binary'::citus_copy_format) intermediate_result(y integer)) set_view_recursive ORDER BY y DESC
+DEBUG:  generating subplan 169_3 for subquery SELECT intermediate_result.y FROM read_intermediate_result('169_1'::text, 'binary'::citus_copy_format) intermediate_result(y integer) UNION SELECT intermediate_result.y FROM read_intermediate_result('169_2'::text, 'binary'::citus_copy_format) intermediate_result(y integer)
+DEBUG:  Plan 169 query after replacing subqueries and CTEs: SELECT y FROM (SELECT intermediate_result.y FROM read_intermediate_result('169_3'::text, 'binary'::citus_copy_format) intermediate_result(y integer)) set_view_recursive ORDER BY y DESC
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
  y 
@@ -1004,13 +995,13 @@ CREATE VIEW set_view_recursive_second AS SELECT u.x, test.y FROM ((SELECT x, y F
 SELECT * FROM set_view_recursive_second ORDER BY 1,2;
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 175_1 for subquery SELECT x, y FROM recursive_union.test
+DEBUG:  generating subplan 174_1 for subquery SELECT x, y FROM recursive_union.test
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 175_2 for subquery SELECT 1, 1 FROM recursive_union.test
+DEBUG:  generating subplan 174_2 for subquery SELECT 1, 1 FROM recursive_union.test
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
-DEBUG:  generating subplan 175_3 for subquery SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('175_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer) UNION SELECT intermediate_result."?column?", intermediate_result."?column?_1" AS "?column?" FROM read_intermediate_result('175_2'::text, 'binary'::citus_copy_format) intermediate_result("?column?" integer, "?column?_1" integer)
-DEBUG:  Plan 175 query after replacing subqueries and CTEs: SELECT x, y FROM (SELECT u.x, test.y FROM ((SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('175_3'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer)) u JOIN recursive_union.test USING (x)) ORDER BY u.x, test.y) set_view_recursive_second ORDER BY x, y
+DEBUG:  generating subplan 174_3 for subquery SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('174_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer) UNION SELECT intermediate_result."?column?", intermediate_result."?column?_1" AS "?column?" FROM read_intermediate_result('174_2'::text, 'binary'::citus_copy_format) intermediate_result("?column?" integer, "?column?_1" integer)
+DEBUG:  Plan 174 query after replacing subqueries and CTEs: SELECT x, y FROM (SELECT u.x, test.y FROM ((SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('174_3'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer)) u JOIN recursive_union.test USING (x)) ORDER BY u.x, test.y) set_view_recursive_second ORDER BY x, y
 DEBUG:  Router planner cannot handle multi-shard select queries
  x | y 
 ---+---
@@ -1018,28 +1009,28 @@ DEBUG:  Router planner cannot handle multi-shard select queries
  2 | 2
 (2 rows)
 
--- this should create lots of recursive calls since both views and set operations lead to recursive plans :) 
+-- this should create lots of recursive calls since both views and set operations lead to recursive plans :)
 ((SELECT x FROM set_view_recursive_second) INTERSECT (SELECT * FROM set_view_recursive)) EXCEPT (SELECT * FROM set_view_pushdown);
 DEBUG:  Router planner cannot handle multi-shard select queries
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 179_1 for subquery SELECT x, y FROM recursive_union.test
+DEBUG:  generating subplan 178_1 for subquery SELECT x, y FROM recursive_union.test
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 179_2 for subquery SELECT 1, 1 FROM recursive_union.test
+DEBUG:  generating subplan 178_2 for subquery SELECT 1, 1 FROM recursive_union.test
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
-DEBUG:  generating subplan 179_3 for subquery SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('179_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer) UNION SELECT intermediate_result."?column?", intermediate_result."?column?_1" AS "?column?" FROM read_intermediate_result('179_2'::text, 'binary'::citus_copy_format) intermediate_result("?column?" integer, "?column?_1" integer)
+DEBUG:  generating subplan 178_3 for subquery SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('178_1'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer) UNION SELECT intermediate_result."?column?", intermediate_result."?column?_1" AS "?column?" FROM read_intermediate_result('178_2'::text, 'binary'::citus_copy_format) intermediate_result("?column?" integer, "?column?_1" integer)
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 179_4 for subquery SELECT y FROM recursive_union.test
+DEBUG:  generating subplan 178_4 for subquery SELECT y FROM recursive_union.test
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 179_5 for subquery SELECT y FROM recursive_union.test
+DEBUG:  generating subplan 178_5 for subquery SELECT y FROM recursive_union.test
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
-DEBUG:  generating subplan 179_6 for subquery SELECT intermediate_result.y FROM read_intermediate_result('179_4'::text, 'binary'::citus_copy_format) intermediate_result(y integer) UNION SELECT intermediate_result.y FROM read_intermediate_result('179_5'::text, 'binary'::citus_copy_format) intermediate_result(y integer)
+DEBUG:  generating subplan 178_6 for subquery SELECT intermediate_result.y FROM read_intermediate_result('178_4'::text, 'binary'::citus_copy_format) intermediate_result(y integer) UNION SELECT intermediate_result.y FROM read_intermediate_result('178_5'::text, 'binary'::citus_copy_format) intermediate_result(y integer)
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 179_7 for subquery SELECT x FROM (SELECT u.x, test.y FROM ((SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('179_3'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer)) u JOIN recursive_union.test USING (x)) ORDER BY u.x, test.y) set_view_recursive_second
+DEBUG:  generating subplan 178_7 for subquery SELECT x FROM (SELECT u.x, test.y FROM ((SELECT intermediate_result.x, intermediate_result.y FROM read_intermediate_result('178_3'::text, 'binary'::citus_copy_format) intermediate_result(x integer, y integer)) u JOIN recursive_union.test USING (x)) ORDER BY u.x, test.y) set_view_recursive_second
 DEBUG:  Router planner cannot handle multi-shard select queries
-DEBUG:  generating subplan 179_8 for subquery SELECT x FROM (SELECT test.x FROM recursive_union.test UNION SELECT test.x FROM recursive_union.test) set_view_pushdown
-DEBUG:  Plan 179 query after replacing subqueries and CTEs: (SELECT intermediate_result.x FROM read_intermediate_result('179_7'::text, 'binary'::citus_copy_format) intermediate_result(x integer) INTERSECT SELECT set_view_recursive.y FROM (SELECT intermediate_result.y FROM read_intermediate_result('179_6'::text, 'binary'::citus_copy_format) intermediate_result(y integer)) set_view_recursive) EXCEPT SELECT intermediate_result.x FROM read_intermediate_result('179_8'::text, 'binary'::citus_copy_format) intermediate_result(x integer)
+DEBUG:  generating subplan 178_8 for subquery SELECT x FROM (SELECT test.x FROM recursive_union.test UNION SELECT test.x FROM recursive_union.test) set_view_pushdown
+DEBUG:  Plan 178 query after replacing subqueries and CTEs: (SELECT intermediate_result.x FROM read_intermediate_result('178_7'::text, 'binary'::citus_copy_format) intermediate_result(x integer) INTERSECT SELECT set_view_recursive.y FROM (SELECT intermediate_result.y FROM read_intermediate_result('178_6'::text, 'binary'::citus_copy_format) intermediate_result(y integer)) set_view_recursive) EXCEPT SELECT intermediate_result.x FROM read_intermediate_result('178_8'::text, 'binary'::citus_copy_format) intermediate_result(x integer)
 DEBUG:  Creating router plan
 DEBUG:  Plan is router executable
  x 

@@ -196,7 +196,7 @@ from
     limit 100) as distributed_table
 group by
     l_suppkey
-    ORDER BY 2 DESC, 1 DESC 
+    ORDER BY 2 DESC, 1 DESC
 LIMIT 5;
 ERROR:  cannot perform distributed planning on this query
 DETAIL:  Subqueries with limit are not supported yet
@@ -224,11 +224,7 @@ from
         lineitem
     group by
         l_partkey) as distributed_table;
-          avg           
-------------------------
- 1.02907126318497555956
-(1 row)
-
+ERROR:  majority of nodes failed
 select
     avg(different_shipment_days)
 from
@@ -238,13 +234,9 @@ from
         lineitem
     group by
         l_partkey
-    having 
+    having
         count(distinct l_shipdate) >= 2) as distributed_table;
-        avg         
---------------------
- 2.0335365853658537
-(1 row)
-
+ERROR:  majority of nodes failed
 -- Check that if subquery is pulled, we don't error and run query properly.
 SELECT max(l_suppkey) FROM
 (

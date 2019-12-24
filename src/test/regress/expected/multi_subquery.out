@@ -537,11 +537,7 @@ JOIN
 ON (l_orderkey = o_orderkey)
 WHERE
 	(o_orderkey < l_quantity);
- count 
--------
-    13
-(1 row)
-
+ERROR:  cannot compute aggregate (distinct)
 -- the same queries returning a non-partition column
 SELECT l_quantity
 FROM
@@ -601,11 +597,7 @@ JOIN
 ON (l_orderkey = o_orderkey)
 WHERE
 	(o_orderkey < l_quantity);
- count 
--------
-    25
-(1 row)
-
+ERROR:  cannot compute aggregate (distinct)
 -- Check that we support count distinct with a subquery
 SELECT
 	count(DISTINCT a)
@@ -617,11 +609,7 @@ FROM (
 	GROUP BY
 	   l_orderkey
 ) z;
- count 
--------
-     7
-(1 row)
-
+ERROR:  cannot compute aggregate (distinct)
 -- We do not support distinct aggregates other than count distinct with a subquery
 SELECT
 	sum(DISTINCT a)
@@ -634,7 +622,6 @@ FROM (
 	   l_orderkey
 ) z;
 ERROR:  cannot compute aggregate (distinct)
-DETAIL:  Only count(distinct) aggregate is supported in subqueries
 SELECT
 	avg(DISTINCT a)
 FROM (
@@ -646,7 +633,6 @@ FROM (
 	   l_orderkey
 ) z;
 ERROR:  cannot compute aggregate (distinct)
-DETAIL:  Only count(distinct) aggregate is supported in subqueries
 -- Check supported subquery types.
 SELECT
 	o_custkey,

@@ -1569,13 +1569,20 @@ MasterAggregateExpression(Aggref *originalAggregate,
 		Expr *directarg;
 		foreach_ptr(directarg, originalAggregate->aggdirectargs)
 		{
-			Var *var = makeVar(masterTableId, walkerContext->columnId,
-							   exprType((Node *) directarg),
-							   exprTypmod((Node *) directarg),
-							   exprCollation((Node *) directarg),
-							   columnLevelsUp);
-			aggregate->aggdirectargs = lappend(aggregate->aggdirectargs, var);
-			walkerContext->columnId++;
+			if (!IsA(directarg, Const) && !IsA(directarg, Param))
+			{
+				Var *var = makeVar(masterTableId, walkerContext->columnId,
+								   exprType((Node *) directarg),
+								   exprTypmod((Node *) directarg),
+								   exprCollation((Node *) directarg),
+								   columnLevelsUp);
+				aggregate->aggdirectargs = lappend(aggregate->aggdirectargs, var);
+				walkerContext->columnId++;
+			}
+			else
+			{
+				aggregate->aggdirectargs = lappend(aggregate->aggdirectargs, directarg);
+			}
 		}
 
 		if (aggregate->aggfilter)
@@ -2885,7 +2892,10 @@ WorkerAggregateExpressionList(Aggref *originalAggregate,
 		Expr *directarg;
 		foreach_ptr(directarg, originalAggregate->aggdirectargs)
 		{
-			workerAggregateList = lappend(workerAggregateList, directarg);
+			if (!IsA(directarg, Const) && !IsA(directarg, Param))
+			{
+				workerAggregateList = lappend(workerAggregateList, directarg);
+			}
 		}
 
 		if (originalAggregate->aggfilter)

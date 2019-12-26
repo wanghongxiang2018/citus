@@ -24,6 +24,7 @@
 #include "distributed/master_protocol.h"
 #include "distributed/multi_join_order.h"
 #include "distributed/version_compat.h"
+#include "distributed/worker_manager.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -165,15 +166,27 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 		selfReferencingTable = (referencingTableId == referencedTableId);
 
 		bool referencedIsDistributed = IsDistributedTable(referencedTableId);
+
+		/*
+		 * If we are to define a foreign key constraint from reference table to
+		 * a local table, then we should check if the conditions written in
+		 * CanDefineFKeyFromReferenceTableToLocalTable function are met
+		 */
 		if (!referencedIsDistributed && !selfReferencingTable)
 		{
-			ereport(ERROR, (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-							errmsg("cannot create foreign key constraint"),
-							errdetail("Referenced table must be a distributed table"
-									  " or a reference table.")));
+			if (!CanDefineFKeyFromReferenceTableToLocalTable())
+			{
+				ereport(ERROR, (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+								errmsg("cannot create foreign key constraint"),
+								errdetail("Referenced table must be a distributed table"
+										  " or a reference table."),
+								errhint(
+									"To define foreign constraint from reference tables "
+									"to local tables, consider adding coordinator "
+									"to pg_dist_node as well.")));
+			}
 		}
-
-		if (!selfReferencingTable)
+		else if (!selfReferencingTable)
 		{
 			referencedDistMethod = PartitionMethod(referencedTableId);
 			referencedDistKey = (referencedDistMethod == DISTRIBUTE_BY_NONE) ?
@@ -202,10 +215,10 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 			continue;
 		}
 
-		/*
-		 * Foreign keys from reference tables to distributed tables are not
-		 * supported.
-		 */
+			/*
+			 * Foreign keys from reference tables to distributed tables are not
+			 * supported.
+			 */
 		if (referencingIsReferenceTable && !referencedIsReferenceTable)
 		{
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -213,7 +226,8 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 								   "since foreign keys from reference tables "
 								   "to distributed tables are not supported"),
 							errdetail("A reference table can only have reference "
-									  "keys to other reference tables")));
+									  "keys to other reference tables or local tables "
+									  "in coordinator")));
 		}
 
 		/*
@@ -327,6 +341,24 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 	/* clean up scan and close system catalog */
 	systable_endscan(scanDescriptor);
 	heap_close(pgConstraint, AccessShareLock);
+}
+
+
+/*
+ * Defining foreign key constraint from a reference table to a local
+ * table is only allowed when the following conditions are met:
+ * 1) Coordinator node has also reference table placements, which is the case if
+ *    we called below command formerly
+ *    "SELECT master_add_node(coordinator_hostname, coordinator_port, groupId => 0)"
+ * 2) Command is executed from coordinator node
+ */
+
+/* TODO: maybe we can choose a better name for this function */
+bool
+CanDefineFKeyFromReferenceTableToLocalTable()
+{
+	/* TODO: not sure about below ShareLock */
+	return CoordinatorCanHaveReferenceTablePlacements(ShareLock) && IsCoordinator();
 }
 
 

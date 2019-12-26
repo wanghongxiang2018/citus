@@ -36,8 +36,10 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
-
 /* Local functions forward declarations for unsupported command checks */
+static char * GetOnlyShardNameOfReferenceTable(Oid referenceTableOid, const
+											   char *referenceTableName, const
+											   char *referenceTableSchemaName);
 static void ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement);
 static List * InterShardDDLTaskList(Oid leftRelationId, Oid rightRelationId,
 									const char *commandString);
@@ -339,6 +341,27 @@ PlanAlterTableStmt(AlterTableStmt *alterTableStatement, const char *alterTableCo
 				 * transaction is in process, which causes deadlock.
 				 */
 				constraint->skip_validation = true;
+
+				/*
+				 * If we are trying to define a foreign key constraint from a reference
+				 * table to a local table, then we should rename referencing relation's
+				 * name to name of the only shard of the reference table before
+				 * standard_ProcessUtility takes its turn to execute the query locally
+				 * if the conditions written in CanDefineFKeyFromReferenceTableToLocalTable
+				 * function are met
+				 */
+				if (CanDefineFKeyFromReferenceTableToLocalTable())
+				{
+					const char *referenceTableName =
+						alterTableStatement->relation->relname;
+					const char *referenceTableSchemaName =
+						alterTableStatement->relation->schemaname;
+
+					alterTableStatement->relation->relname =
+						GetOnlyShardNameOfReferenceTable(leftRelationId,
+														 referenceTableName,
+														 referenceTableSchemaName);
+				}
 			}
 		}
 		else if (alterTableType == AT_AddColumn)
@@ -423,11 +446,29 @@ PlanAlterTableStmt(AlterTableStmt *alterTableStatement, const char *alterTableCo
 	ddlJob->concurrentIndexCmd = false;
 	ddlJob->commandString = alterTableCommand;
 
-	if (rightRelationId)
+	if (OidIsValid(rightRelationId))
 	{
-		if (!IsDistributedTable(rightRelationId))
+		bool referencedIsLocalTable = !IsDistributedTable(rightRelationId);
+
+		if (referencedIsLocalTable)
 		{
-			ddlJob->taskList = NIL;
+			if (CanDefineFKeyFromReferenceTableToLocalTable())
+			{
+				/*
+				 * Defining foreign key constraint from a reference table to a
+				 * local table is only allowed if the conditions written in
+				 * CanDefineFKeyFromReferenceTableToLocalTable function are met.
+				 * As we already changed the relname field in AlterTableStmt to the
+				 * reference table's only shard name, here we simply return ddlJobs to
+				 * be NIL to prevent PostProcessAlterTableStmt doing extra checks.
+				 */
+
+				return NIL;
+			}
+			else
+			{
+				ddlJob->taskList = NIL;
+			}
 		}
 		else
 		{
@@ -445,6 +486,43 @@ PlanAlterTableStmt(AlterTableStmt *alterTableStatement, const char *alterTableCo
 	List *ddlJobs = list_make1(ddlJob);
 
 	return ddlJobs;
+}
+
+
+/*
+ * GetOnlyShardNameOfReferenceTable returns name of the only shard of the
+ * given reference table. Caller must ensure that referenceTableOid is owned
+ * by a reference table.
+ */
+static char *
+GetOnlyShardNameOfReferenceTable(Oid referenceTableOid, const char *referenceTableName,
+								 const char *referenceTableSchemaName)
+{
+	List *referenceTableShardIntervalList = LoadShardIntervalList(referenceTableOid);
+
+	Assert(referenceTableShardIntervalList->length == 1);
+
+	/* as it is a reference table, it can only have one shard interval */
+	ShardInterval *referenceTableShardInterval = (ShardInterval *)
+												 lfirst(
+		referenceTableShardIntervalList->head);
+
+	/* TODO: maybe we can do some further assertions on shardInterval  */
+
+	/* TODO: below snipped derived from codebase, maybe we can move it to a
+	 *       function and utilize it in multiple files
+	 */
+
+	uint64 referenceTableShardId = referenceTableShardInterval->shardId;
+
+	char *referenceTableShardName = pstrdup(referenceTableName);
+
+	AppendShardIdToName(&referenceTableShardName, referenceTableShardId);
+
+	referenceTableShardName = quote_qualified_identifier(referenceTableSchemaName,
+														 referenceTableShardName);
+
+	return referenceTableShardName;
 }
 
 

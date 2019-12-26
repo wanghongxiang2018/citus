@@ -401,6 +401,35 @@ NodeIsPrimaryWorker(WorkerNode *node)
 
 
 /*
+ * CoordinatorCanHaveReferenceTablePlacements returns true if coordinator has
+ * also reference table placements. This is only possible if we called below
+ * command formerly
+ * "SELECT master_add_node(coordinator_hostname, coordinator_port, groupId => 0)"
+ */
+bool
+CoordinatorCanHaveReferenceTablePlacements(LOCKMODE lockMode)
+{
+	/* get list nodes that have reference table placements */
+	List *nodeList = ReferenceTablePlacementNodeList(lockMode);
+
+	ListCell *nodeCell = NULL;
+
+	foreach(nodeCell, nodeList)
+	{
+		WorkerNode *workerNode = (WorkerNode *) lfirst(nodeCell);
+
+		if (NodeIsCoordinator(workerNode))
+		{
+			/* coordinator does also have reference table placements */
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+/*
  * ReferenceTablePlacementNodeList returns the set of nodes that should have
  * reference table placements. This includes all primaries, including the
  * coordinator if known.
